@@ -1,0 +1,9 @@
+cc_library_shared {
+    name: "libfpsph",
+    srcs: ["fpsph.cpp"],
+    shared_libs: [
+        "liblog",
+    ],
+    vendor: true,
+}
+

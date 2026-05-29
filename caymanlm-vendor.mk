@@ -325,6 +325,15 @@ PRODUCT_COPY_FILES += \
     vendor/lge/caymanlm/proprietary/vendor/firmware/crbtfw32.tlv:$(TARGET_COPY_OUT_VENDOR)/firmware/crbtfw32.tlv \
     vendor/lge/caymanlm/proprietary/vendor/firmware/crnv32.bin:$(TARGET_COPY_OUT_VENDOR)/firmware/crnv32.bin \
     vendor/lge/caymanlm/proprietary/vendor/firmware/crnv32u.bin:$(TARGET_COPY_OUT_VENDOR)/firmware/crnv32u.bin \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b00:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b00 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b01:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b01 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b02:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b02 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b03:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b03 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b04:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b04 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b05:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b05 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b06:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b06 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.b07:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.b07 \
+    vendor/lge/caymanlm/proprietary/vendor/firmware/egista.mdt:$(TARGET_COPY_OUT_VENDOR)/firmware/egista.mdt \
     vendor/lge/caymanlm/proprietary/vendor/firmware/ipa_fws-timestamp:$(TARGET_COPY_OUT_VENDOR)/firmware/ipa_fws-timestamp \
     vendor/lge/caymanlm/proprietary/vendor/firmware/tfa98xx.cnt:$(TARGET_COPY_OUT_VENDOR)/firmware/tfa98xx.cnt \
     vendor/lge/caymanlm/proprietary/vendor/lib64/camera/com.qti.sensormodule.hi1634.bin:$(TARGET_COPY_OUT_VENDOR)/lib64/camera/com.qti.sensormodule.hi1634.bin \
@@ -548,7 +557,6 @@ PRODUCT_PACKAGES += \
     libcom.qti.chinodeutils \
     libets_teeclient_v2 \
     libfilm_emulation_hal \
-    libfpsph \
     libipebpsstriping \
     liblgae_main \
     liblgawb_main \
@@ -561,73 +569,74 @@ PRODUCT_PACKAGES += \
     libofflinelog \
     libprmclient \
     libremosaic_wrapper \
+    libswregistrationalgo \
     libsymphony-cpu \
     vendor.qti.hardware.camera.postproc@1.0-service-impl \
     vendor.qti.hardware.seccam@1.0 \
-    AlacDecoderModule.so \
-    ApeDecoderModule.so \
-    AudioContextDetection.so \
-    AudioSphereModule.so \
-    CFCMModule.so \
-    EtsiAmrWbPlusDecModule.so \
-    EtsiEaacPlusEncAndCmnModule.so \
-    FlacDecoderModule.so \
-    HeaacDecoderModule.so \
-    LdacModule.so \
-    MIC2AMBModule.so \
-    SAPlusCmnModule.so \
-    SVACmnModule.so \
-    VoiceWakeup_V2_Module.so \
-    VorbisDecoderModule.so \
-    WmaProDecoderModule.so \
-    WmaStdDecoderModule.so \
-    capi_v2_aptX_CLHDADV_Encoder \
-    capi_v2_aptX_CLHDAD_Speech_Decoder \
-    fastrpc_shell_0 \
-    ffns_module_fv9.so \
-    ffv_module_fv9.so \
-    ffv_module_fvx.so \
-    fluence_bs_module_fv9.so \
-    fluence_bs_module_fvx.so \
-    fluence_ef_module_fv9.so \
-    fluence_ef_module_fvx.so \
-    fluence_nn_module_fvx.so \
-    fluence_pro_vc_module_fv9.so \
-    fluence_pro_vc_module_fvx.so \
-    fluence_pro_vr_module_fv9.so \
-    fluence_pro_vr_module_fvx.so \
-    fluence_sm_module_fv9.so \
-    fluence_sm_module_fvx.so \
-    fluence_voiceplus_module.so \
-    libapps_mem_heap \
-    libbitml_nsp_skel \
-    libcamera_nn_skel \
-    libcvpdsp_skel \
-    libdspCV_skel \
-    libdsp_streamer_binning \
-    libfastcvadsp \
-    libfastcvdsp_skel \
-    libhexagon_nn_skel \
-    libscveObjectSegmentation_skel \
-    libscveT2T_skel \
-    libsnpe_dsp_domains_skel \
-    libsnpe_dsp_skel \
-    libsnpe_dsp_v65_domains_v2_skel \
-    libsnpe_dsp_v66_domains_v2_skel \
-    libsns_device_mode_skel \
-    libsns_low_lat_stream_skel \
-    libstabilitydomain_skel \
-    libsysmon_skel \
-    libsysmondomain_skel \
-    libsysmonquery_skel \
-    mm_fluence_sb_module.so \
-    mm_fluence_sb_module_fvx.so \
-    mmecns_module.so \
-    sm_fluence_sb_module.so \
-    sm_fluence_sb_module_fvx.so \
-    smecns_v2_module_fv9.so \
-    smecns_v2_module_fvx.so \
-    sns_bring_to_ear
+    vendor_lib_rfsa_adsp_AlacDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_ApeDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_AudioContextDetection_so_1 \
+    vendor_lib_rfsa_adsp_AudioSphereModule_so_1 \
+    vendor_lib_rfsa_adsp_CFCMModule_so_1 \
+    vendor_lib_rfsa_adsp_EtsiAmrWbPlusDecModule_so_1 \
+    vendor_lib_rfsa_adsp_EtsiEaacPlusEncAndCmnModule_so_1 \
+    vendor_lib_rfsa_adsp_FlacDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_HeaacDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_LdacModule_so_1 \
+    vendor_lib_rfsa_adsp_MIC2AMBModule_so_1 \
+    vendor_lib_rfsa_adsp_SAPlusCmnModule_so_1 \
+    vendor_lib_rfsa_adsp_SVACmnModule_so_1 \
+    vendor_lib_rfsa_adsp_VoiceWakeup_V2_Module_so_1 \
+    vendor_lib_rfsa_adsp_VorbisDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_WmaProDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_WmaStdDecoderModule_so_1 \
+    vendor_lib_rfsa_adsp_capi_v2_aptX_CLHDADV_Encoder_so \
+    vendor_lib_rfsa_adsp_capi_v2_aptX_CLHDAD_Speech_Decoder_so \
+    vendor_lib_rfsa_adsp_fastrpc_shell_0 \
+    vendor_lib_rfsa_adsp_ffns_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_ffv_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_ffv_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_bs_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_fluence_bs_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_ef_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_fluence_ef_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_nn_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_pro_vc_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_fluence_pro_vc_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_pro_vr_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_fluence_pro_vr_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_sm_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_fluence_sm_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_fluence_voiceplus_module_so_1 \
+    vendor_lib_rfsa_adsp_libapps_mem_heap_so \
+    vendor_lib_rfsa_adsp_libbitml_nsp_skel_so \
+    vendor_lib_rfsa_adsp_libcamera_nn_skel_so \
+    vendor_lib_rfsa_adsp_libcvpdsp_skel_so \
+    vendor_lib_rfsa_adsp_libdspCV_skel_so \
+    vendor_lib_rfsa_adsp_libdsp_streamer_binning_so \
+    vendor_lib_rfsa_adsp_libfastcvadsp_so \
+    vendor_lib_rfsa_adsp_libfastcvdsp_skel_so \
+    vendor_lib_rfsa_adsp_libhexagon_nn_skel_so \
+    vendor_lib_rfsa_adsp_libscveObjectSegmentation_skel_so \
+    vendor_lib_rfsa_adsp_libscveT2T_skel_so \
+    vendor_lib_rfsa_adsp_libsnpe_dsp_domains_skel_so \
+    vendor_lib_rfsa_adsp_libsnpe_dsp_skel_so \
+    vendor_lib_rfsa_adsp_libsnpe_dsp_v65_domains_v2_skel_so \
+    vendor_lib_rfsa_adsp_libsnpe_dsp_v66_domains_v2_skel_so \
+    vendor_lib_rfsa_adsp_libsns_device_mode_skel_so \
+    vendor_lib_rfsa_adsp_libsns_low_lat_stream_skel_so \
+    vendor_lib_rfsa_adsp_libstabilitydomain_skel_so \
+    vendor_lib_rfsa_adsp_libsysmon_skel_so \
+    vendor_lib_rfsa_adsp_libsysmondomain_skel_so \
+    vendor_lib_rfsa_adsp_libsysmonquery_skel_so \
+    vendor_lib_rfsa_adsp_mm_fluence_sb_module_so_1 \
+    vendor_lib_rfsa_adsp_mm_fluence_sb_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_mmecns_module_so_1 \
+    vendor_lib_rfsa_adsp_sm_fluence_sb_module_so_1 \
+    vendor_lib_rfsa_adsp_sm_fluence_sb_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_smecns_v2_module_fv9_so_1 \
+    vendor_lib_rfsa_adsp_smecns_v2_module_fvx_so_1 \
+    vendor_lib_rfsa_adsp_sns_bring_to_ear_so
 
 PRODUCT_PACKAGES += \
     vendor_firmware_wlan_qca_cld_bdwlan_bin \
