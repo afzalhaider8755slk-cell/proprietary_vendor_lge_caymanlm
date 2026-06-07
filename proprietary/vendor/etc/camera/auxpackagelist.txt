@@ -11,3 +11,6 @@ com.lge.tofcovertest
 android
 com.lge.ime
 jp.co.omronsoft.iwnnime.ml
+org.lineageos.aperture
+org.codeaurora.snapcam
+com.google.android.GoogleCamera
