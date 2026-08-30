@@ -28,7 +28,7 @@ jobs:
 
     name: LM-G900 Vendor Build - 75GB Runner
 
-    runs-on: ubuntu-24.04   # پبلک رنر استعمال کریں (یا اپنا سیلف ہوسٹڈ اگر دستیاب ہو)
+    runs-on: ubuntu-24.04
 
     timeout-minutes: 360
 
@@ -68,20 +68,20 @@ jobs:
           sudo du -xhd1 / 2>/dev/null | sort -h || true
 
       # ============================================================
-      # V00.2 - AGGRESSIVE SAFE CLEANUP
+      # V00.2 - EXTREME CLEANUP (more space)
       # ============================================================
 
-      - name: V00.2 - Free runner storage
+      - name: V00.2 - Free runner storage (extreme)
         id: cleanup
         shell: bash
         run: |
           set -Eeuo pipefail
 
           echo "=================================================="
-          echo "AGGRESSIVE RUNNER CLEANUP"
+          echo "EXTREME RUNNER CLEANUP"
           echo "=================================================="
 
-          # Android / SDK caches
+          # Android / SDK
           sudo rm -rf /usr/local/lib/android 2>/dev/null || true
           sudo rm -rf /usr/local/.ghcup 2>/dev/null || true
           sudo rm -rf /usr/share/dotnet 2>/dev/null || true
@@ -95,9 +95,17 @@ jobs:
           sudo apt-get clean || true
           sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
-          # Docker cache
+          # Docker
           docker system prune -af 2>/dev/null || true
           docker builder prune -af 2>/dev/null || true
+
+          # User caches
+          rm -rf ~/.cache/* 2>/dev/null || true
+          rm -rf ~/.gradle/caches/* 2>/dev/null || true
+          rm -rf ~/.npm/_cacache 2>/dev/null || true
+          rm -rf ~/.m2/repository/* 2>/dev/null || true
+          rm -rf ~/.cache/pip 2>/dev/null || true
+          rm -rf ~/.ccache 2>/dev/null || true
 
           # Temporary files
           sudo rm -rf /tmp/* 2>/dev/null || true
@@ -140,7 +148,7 @@ jobs:
           } | tee "$GITHUB_WORKSPACE/$DIAG_DIR/00-run.log"
 
       # ============================================================
-      # V01 - INSTALL ONLY REQUIRED DEPENDENCIES + UPDATE REPO
+      # V01 - INSTALL DEPENDENCIES + UPDATE REPO
       # ============================================================
 
       - name: V01 - Install build dependencies and update repo
@@ -182,7 +190,7 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-          # Ensure latest repo is installed
+          # Install latest repo
           curl -fL --retry 5 --retry-delay 3 \
             https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/repo"
@@ -335,10 +343,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - VERIFY REFS BEFORE SYNC + RETRY (NO --depth)
+      # V04 - REPO SYNC WITH DEPTH=1 AND RETRY
       # ============================================================
 
-      - name: V04 - Verify refs and repo sync
+      - name: V04 - Verify refs and repo sync (with depth)
         id: v04
         shell: bash
         run: |
@@ -387,7 +395,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC WITH RETRY (3 attempts) - NO --depth
+          # REPO SYNC WITH RETRY (3 attempts) + --depth=1 + --force-broken
           # ----------------------------------------------
           set +e
 
@@ -404,11 +412,12 @@ jobs:
             repo sync \
               --current-branch \
               --force-sync \
+              --force-broken \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              --fail-fast \
+              --depth=1 \
               -j2 \
               2>&1 | tee -a "$sync_log"
 
@@ -419,6 +428,15 @@ jobs:
               break
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
+
+              # اگر چیک آؤٹ کا مسئلہ ہو تو متاثرہ پروجیکٹ کو ڈیلیٹ کریں
+              if grep -q "Cannot checkout" "$sync_log"; then
+                grep "Cannot checkout" "$sync_log" | sed -E 's/.*Cannot checkout ([^:]*):.*/\1/' | while read -r proj; do
+                  echo "Removing problematic project: $proj"
+                  rm -rf "$proj" || true
+                done
+              fi
+
               if [[ $attempt -lt $max_retries ]]; then
                 echo "Waiting 15 seconds before retry..."
                 sleep 15
@@ -740,7 +758,7 @@ jobs:
           } > "$DIAG_DIR/99-ERROR-SUMMARY.log"
 
           # ------------------------------------------------------------
-          # CREATE A DEDICATED error.txt FILE (ONLY ERROR LINES)
+          # DEDICATED error.txt (ONLY ERROR LINES)
           # ------------------------------------------------------------
           {
             echo "========== ERROR LOG (extracted) =========="
