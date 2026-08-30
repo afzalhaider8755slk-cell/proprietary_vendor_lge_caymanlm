@@ -343,10 +343,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC WITH DEPTH=1 AND RETRY
+      # V04 - REPO SYNC (NO --depth) WITH RETRY
       # ============================================================
 
-      - name: V04 - Verify refs and repo sync (with depth)
+      - name: V04 - Verify refs and repo sync (no depth)
         id: v04
         shell: bash
         run: |
@@ -395,7 +395,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC WITH RETRY (3 attempts) + --depth=1 + --force-broken
+          # REPO SYNC WITH RETRY (3 attempts) - NO --depth
           # ----------------------------------------------
           set +e
 
@@ -417,7 +417,6 @@ jobs:
               --no-tags \
               --optimized-fetch \
               --prune \
-              --depth=1 \
               -j2 \
               2>&1 | tee -a "$sync_log"
 
