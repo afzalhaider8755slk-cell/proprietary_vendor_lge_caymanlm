@@ -28,7 +28,7 @@ jobs:
 
     name: LM-G900 Vendor Build - 75GB Runner
 
-    runs-on: lm-g900-ubuntu-75gb
+    runs-on: runs-on: ubuntu-24.04
 
     timeout-minutes: 360
 
