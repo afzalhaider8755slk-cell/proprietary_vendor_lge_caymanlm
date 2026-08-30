@@ -1,21 +1,16 @@
-name: Build LG CaymanLM Vendor Image
+name: CaymanLM Vendor IMG - LineageOS 23.2
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - sixteen
-      - main
 
 permissions:
   contents: read
 
 env:
-  VENDOR_REPO: https://github.com/afzalhaider8755slk-cell/proprietary_vendor_lge_caymanlm.git
-  VENDOR_BRANCH: sixteen
   DEVICE: caymanlm
-  ANDROID_TARGET: android-16
-  LINEAGE_TARGET: lineage-23.2
+  LINEAGE_VERSION: lineage-23.2
+  ANDROID_VERSION: android-16
+  VENDOR_BRANCH: sixteen
 
 jobs:
   build-vendor:
@@ -23,279 +18,413 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout vendor repository
+
+      # ---------------------------------------------------------
+      # 1. Checkout
+      # ---------------------------------------------------------
+      - name: Checkout vendor tree
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Show runner storage
+      # ---------------------------------------------------------
+      # 2. Initial runner diagnostics
+      # ---------------------------------------------------------
+      - name: Runner diagnostics
         run: |
-          echo "=== Disk ==="
-          df -h
-          echo
-          echo "=== Memory ==="
-          free -h
-          echo
-          echo "=== CPU ==="
-          nproc
+          mkdir -p logs
 
-      - name: Install build tools
+          {
+            echo "=========================================="
+            echo "CAYMANLM VENDOR BUILD"
+            echo "LineageOS 23.2 / Android 16 QPR2"
+            echo "=========================================="
+            date
+            echo
+
+            echo "=== CPU ==="
+            nproc
+            lscpu || true
+            echo
+
+            echo "=== MEMORY ==="
+            free -h
+            echo
+
+            echo "=== DISK ==="
+            df -h
+            echo
+
+            echo "=== WORKSPACE ==="
+            du -sh .
+          } 2>&1 | tee logs/runner.log
+
+      # ---------------------------------------------------------
+      # 3. Validate vendor source
+      # ---------------------------------------------------------
+      - name: Validate vendor source
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            e2fsprogs \
-            android-libext4-utils \
-            android-libselinux \
-            android-selinux \
-            rsync \
-            git \
-            python3 \
-            python3-pip \
-            file \
-            unzip \
-            zip \
-            gzip \
-            tar \
-            xz-utils \
-            lz4 \
-            zstd
+          set -Eeuo pipefail
 
-      - name: Prepare vendor source
+          {
+            echo "=== Vendor source validation ==="
+
+            test -d proprietary/vendor
+
+            echo "Vendor directory:"
+            du -sh proprietary/vendor
+
+            echo
+            echo "File count:"
+            find proprietary/vendor -type f | wc -l
+
+            echo
+            echo "Top-level:"
+            find proprietary/vendor -maxdepth 2 -type d | sort
+
+            echo
+            echo "Repository:"
+            git remote -v || true
+
+            echo
+            echo "Commit:"
+            git rev-parse HEAD
+
+            echo
+            echo "Branch:"
+            git branch --show-current || true
+          } 2>&1 | tee logs/source-validation.log
+
+      # ---------------------------------------------------------
+      # 4. Install only required packages
+      # ---------------------------------------------------------
+      - name: Install build dependencies
         run: |
-          set -eux
+          set -Eeuo pipefail
 
-          mkdir -p "$GITHUB_WORKSPACE/work/vendor"
+          {
+            sudo apt-get update
 
-          if [ -d "proprietary/vendor" ]; then
-            rsync -aHAX --numeric-ids \
-              proprietary/vendor/ \
-              "$GITHUB_WORKSPACE/work/vendor/"
-          else
-            echo "::error::proprietary/vendor directory not found"
-            exit 1
-          fi
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              e2fsprogs \
+              rsync \
+              file \
+              git \
+              python3 \
+              unzip \
+              zip \
+              gzip \
+              tar \
+              xz-utils \
+              zstd \
+              lz4
+          } 2>&1 | tee logs/packages.log
 
-          echo "Vendor source:"
-          du -sh "$GITHUB_WORKSPACE/work/vendor"
-
-          echo "File count:"
-          find "$GITHUB_WORKSPACE/work/vendor" -type f | wc -l
-
-      - name: Vendor compatibility audit
+      # ---------------------------------------------------------
+      # 5. Feature audit
+      # ---------------------------------------------------------
+      - name: Audit required hardware features
         run: |
           set +e
 
-          mkdir -p audit
+          {
+            echo "=========================================="
+            echo "REQUIRED HARDWARE FEATURE AUDIT"
+            echo "=========================================="
+            echo
+
+            audit_feature() {
+              NAME="$1"
+              PATTERN="$2"
+
+              echo
+              echo "===== $NAME ====="
+
+              COUNT=$(find proprietary/vendor -type f \
+                | grep -Ei "$PATTERN" \
+                | wc -l)
+
+              echo "Matching files: $COUNT"
+
+              find proprietary/vendor -type f \
+                | grep -Ei "$PATTERN" \
+                | sort | head -100
+            }
+
+            audit_feature \
+              "FINGERPRINT" \
+              'finger|fps|biometric|goodix|fpc|synaptics'
+
+            audit_feature \
+              "VIBRATION / HAPTICS" \
+              'vibrat|haptic|motor|linear_motor'
+
+            audit_feature \
+              "DUAL-SIM / RIL" \
+              'ril|qcril|radio|modem|uim|sim|telephony'
+
+            audit_feature \
+              "AUDIO" \
+              'audio|acdb|adsp|snd|sound|codec'
+
+            audit_feature \
+              "IMS / VoLTE" \
+              'ims|volte|qti.*ims'
+
+            audit_feature \
+              "WIFI / VoWiFi" \
+              'wifi|wlan|wpa|hostapd|vowifi|wifi.*call'
+
+            echo
+            echo "===== VINTF / MANIFEST ====="
+
+            find proprietary/vendor -type f \
+              | grep -Ei \
+              'manifest.*xml|compatibility.*xml|vintf' \
+              | sort
+
+          } 2>&1 | tee logs/feature-audit.log
+
+      # ---------------------------------------------------------
+      # 6. Prepare isolated build directory
+      # ---------------------------------------------------------
+      - name: Prepare build tree
+        run: |
+          set -Eeuo pipefail
 
           {
-            echo "======================================"
-            echo "LG CAYMANLM VENDOR AUDIT"
-            echo "LineageOS 23.2 / Android 16"
-            echo "======================================"
-            echo
+            rm -rf work
+            mkdir -p work/vendor
 
-            echo "=== Source ==="
-            echo "Repository: $VENDOR_REPO"
-            echo "Branch: $VENDOR_BRANCH"
-            echo "Target: $LINEAGE_TARGET"
-            echo
+            rsync -a \
+              proprietary/vendor/ \
+              work/vendor/
 
-            echo "=== Size ==="
+            echo "Copied vendor:"
             du -sh work/vendor
-            echo
 
-            echo "=== File count ==="
+            echo "Files:"
             find work/vendor -type f | wc -l
-            echo
 
-            echo "=== Fingerprint related ==="
-            find work/vendor -type f | grep -Ei \
-              'finger|fps|biometric|goodix|fpc|synaptics' || true
-            echo
+          } 2>&1 | tee logs/prepare.log
 
-            echo "=== Vibration / haptics ==="
-            find work/vendor -type f | grep -Ei \
-              'vibrat|haptic|linear_motor|motor' || true
-            echo
-
-            echo "=== RIL / Dual SIM ==="
-            find work/vendor -type f | grep -Ei \
-              'ril|radio|qcril|ims|modem|telephony|uim|sim' || true
-            echo
-
-            echo "=== Audio ==="
-            find work/vendor -type f | grep -Ei \
-              'audio|acdb|adsp|snd|sound|codec' || true
-            echo
-
-            echo "=== IMS / VoWiFi ==="
-            find work/vendor -type f | grep -Ei \
-              'ims|volte|vowifi|wifi.*call|carrier|qti.*ims' || true
-            echo
-
-            echo "=== Wi-Fi ==="
-            find work/vendor -type f | grep -Ei \
-              'wifi|wlan|wpa|hostapd|qca' || true
-            echo
-
-            echo "=== HAL / VINTF ==="
-            find work/vendor -type f | grep -Ei \
-              'manifest.*xml|compatibility.*xml|vintf' || true
-            echo
-
-            echo "=== ELF libraries ==="
-            find work/vendor -type f \( -name '*.so' -o -name '*.so.*' \) \
-              | wc -l
-            echo
-
-            echo "=== Broken symlinks ==="
-            find -L work/vendor -type l -print
-            echo
-
-            echo "=== Suspicious zero-byte files ==="
-            find work/vendor -type f -size 0 -print
-            echo
-
-          } | tee audit/vendor-audit.txt
-
-          exit 0
-
-      - name: Prepare SELinux file contexts
-        run: |
-          set -eux
-
-          mkdir -p image
-
-          if [ -f proprietary/vendor/etc/selinux/vendor_file_contexts ]; then
-            cp proprietary/vendor/etc/selinux/vendor_file_contexts \
-              image/vendor_file_contexts
-          elif [ -f proprietary/vendor/etc/selinux/plat_file_contexts ]; then
-            cp proprietary/vendor/etc/selinux/plat_file_contexts \
-              image/vendor_file_contexts
-          else
-            echo "No vendor_file_contexts found in vendor tree."
-            echo "Creating conservative fallback context file."
-            touch image/vendor_file_contexts
-          fi
-
+      # ---------------------------------------------------------
+      # 7. Calculate image size
+      # ---------------------------------------------------------
       - name: Calculate vendor image size
         run: |
-          set -eux
+          set -Eeuo pipefail
 
-          USED_KB=$(du -sk work/vendor | awk '{print $1}')
+          {
+            USED_KB=$(du -sk work/vendor | awk '{print $1}')
 
-          # Extra room for filesystem metadata and runtime/vendor additions.
-          EXTRA_KB=$((256 * 1024))
+            # 256 MiB filesystem headroom
+            HEADROOM_KB=$((256 * 1024))
 
-          IMAGE_KB=$((USED_KB + EXTRA_KB))
+            IMAGE_KB=$((USED_KB + HEADROOM_KB))
 
-          # Round up to 4 MiB.
-          IMAGE_KB=$(( ((IMAGE_KB + 4095) / 4096) * 4096 ))
+            # Round up to 4 MiB
+            IMAGE_KB=$(
+              ((IMAGE_KB + 4095) / 4096) * 4096
+            )
 
-          echo "Vendor data: ${USED_KB} KB"
-          echo "Extra room: ${EXTRA_KB} KB"
-          echo "Image size: ${IMAGE_KB} KB"
+            echo "Vendor used: ${USED_KB} KB"
+            echo "Headroom: ${HEADROOM_KB} KB"
+            echo "Image size: ${IMAGE_KB} KB"
 
-          echo "IMAGE_KB=$IMAGE_KB" >> "$GITHUB_ENV"
+            echo "IMAGE_KB=${IMAGE_KB}" >> "$GITHUB_ENV"
 
+          } 2>&1 | tee logs/image-size.log
+
+      # ---------------------------------------------------------
+      # 8. Build vendor.img
+      # ---------------------------------------------------------
       - name: Build vendor.img
         run: |
-          set -eux
+          set -Eeuo pipefail
 
-          rm -f vendor.img
+          {
+            echo "=========================================="
+            echo "BUILDING vendor.img"
+            echo "=========================================="
 
-          mke2fs \
-            -t ext4 \
-            -b 4096 \
-            -m 0 \
-            -O ^has_journal \
-            -L vendor \
-            "vendor.img" \
-            "${IMAGE_KB}K"
+            rm -f vendor.img
 
-          mkdir -p image/mnt
+            echo
+            echo "Creating EXT4 filesystem..."
 
-          sudo mount -o loop vendor.img image/mnt
+            mke2fs \
+              -t ext4 \
+              -b 4096 \
+              -m 0 \
+              -O ^has_journal \
+              -L vendor \
+              vendor.img \
+              "${IMAGE_KB}K"
 
-          sudo rsync -aHAX \
-            work/vendor/ \
-            image/mnt/
+            echo
+            echo "Mounting image..."
 
-          sudo sync
-          sudo umount image/mnt
+            mkdir -p image/mnt
 
-          e2fsck -fy vendor.img || true
+            sudo mount \
+              -o loop \
+              vendor.img \
+              image/mnt
 
-          echo "=== vendor.img ==="
-          ls -lh vendor.img
-          file vendor.img
-          du -h vendor.img
+            echo
+            echo "Copying vendor files..."
 
-      - name: Vendor image verification
+            sudo rsync -aHAX \
+              work/vendor/ \
+              image/mnt/
+
+            echo
+            echo "Sync..."
+
+            sudo sync
+
+            echo
+            echo "Unmount..."
+
+            sudo umount image/mnt
+
+            echo
+            echo "Filesystem check..."
+
+            e2fsck -fy vendor.img
+
+            echo
+            echo "=== FINAL IMAGE ==="
+
+            ls -lh vendor.img
+            file vendor.img
+            du -h vendor.img
+
+          } 2>&1 | tee logs/vendor-build.log
+
+      # ---------------------------------------------------------
+      # 9. Verify image contents
+      # ---------------------------------------------------------
+      - name: Verify vendor.img
         run: |
-          set -eux
+          set -Eeuo pipefail
 
-          mkdir -p verify/mnt
+          {
+            echo "=========================================="
+            echo "VENDOR IMAGE VERIFICATION"
+            echo "=========================================="
 
-          sudo mount -o loop,ro vendor.img verify/mnt
+            mkdir -p verify/mnt
 
-          echo "=== Root ==="
-          sudo ls -lah verify/mnt
+            sudo mount \
+              -o loop,ro \
+              vendor.img \
+              verify/mnt
 
-          echo "=== Vendor directories ==="
-          sudo find verify/mnt -maxdepth 2 -type d | sort | head -100
+            echo
+            echo "Image root:"
+            sudo ls -lah verify/mnt
 
-          echo "=== Required feature audit ==="
+            echo
+            echo "Vendor file count:"
+            sudo find verify/mnt -type f | wc -l
 
-          for feature in \
-            "Fingerprint|finger|fps|biometric" \
-            "Vibration|vibrat|haptic|motor" \
-            "RIL|ril|qcril|radio|modem|sim" \
-            "Audio|audio|acdb|adsp|sound" \
-            "IMS|ims|volte|vowifi" \
-            "WiFi|wifi|wlan|wpa"; do
+            echo
+            echo "Required feature verification:"
 
-            NAME="${feature%%|*}"
-            PATTERN="${feature#*|}"
+            for item in \
+              "Fingerprint|finger|fps|biometric" \
+              "Vibration|vibrat|haptic|motor" \
+              "Dual-SIM_RIL|ril|qcril|radio|modem|sim" \
+              "Audio|audio|acdb|adsp|sound" \
+              "IMS|ims|volte" \
+              "WiFi_VoWiFi|wifi|wlan|vowifi"; do
 
-            COUNT=$(sudo find verify/mnt -type f \
-              | grep -Ei "$PATTERN" \
-              | wc -l || true)
+              NAME="${item%%|*}"
+              PATTERN="${item#*|}"
 
-            echo "$NAME: $COUNT matching files"
-          done
+              COUNT=$(sudo find verify/mnt -type f \
+                | grep -Ei "$PATTERN" \
+                | wc -l || true)
 
-          sudo umount verify/mnt
+              echo "$NAME -> $COUNT matching files"
+            done
 
-          echo
-          echo "=== Filesystem check ==="
-          e2fsck -fn vendor.img
+            echo
+            echo "Filesystem:"
+            df -h verify/mnt
 
-      - name: Create compressed vendor package
+            sudo umount verify/mnt
+
+            echo
+            echo "Final filesystem test:"
+            e2fsck -fn vendor.img
+
+          } 2>&1 | tee logs/verification.log
+
+      # ---------------------------------------------------------
+      # 10. Package vendor image
+      # ---------------------------------------------------------
+      - name: Package vendor.img
         run: |
-          set -eux
+          set -Eeuo pipefail
 
-          mkdir -p output
+          {
+            mkdir -p output
 
-          cp vendor.img output/vendor.img
+            cp vendor.img \
+              output/vendor.img
 
-          # tar.gz preserves the complete image as a single compressed file.
-          tar -C output \
-            -czf vendor-caymanlm-lineage23.2.tar.gz \
-            vendor.img
+            echo "Creating tar.gz..."
 
-          sha256sum output/vendor.img \
-            > output/vendor.img.sha256
+            tar -C output \
+              -czf vendor-caymanlm-lineage23.2.tar.gz \
+              vendor.img
 
-          sha256sum vendor-caymanlm-lineage23.2.tar.gz \
-            > output/vendor-caymanlm-lineage23.2.tar.gz.sha256
+            echo
+            echo "Creating checksums..."
 
-          cp audit/vendor-audit.txt output/vendor-audit.txt
+            sha256sum \
+              output/vendor.img \
+              > output/vendor.img.sha256
 
-          echo "=== Output ==="
-          ls -lh output/
+            sha256sum \
+              output/vendor-caymanlm-lineage23.2.tar.gz \
+              > output/vendor-caymanlm-lineage23.2.tar.gz.sha256
 
+            echo
+            echo "=== OUTPUT ==="
+
+            ls -lh output/
+
+          } 2>&1 | tee logs/package.log
+
+      # ---------------------------------------------------------
+      # 11. Storage audit
+      # ---------------------------------------------------------
+      - name: Final storage audit
+        if: always()
+        run: |
+          {
+            echo "=== FINAL DISK ==="
+            df -h
+
+            echo
+            echo "=== WORKSPACE SIZE ==="
+            du -sh . || true
+
+            echo
+            echo "=== OUTPUT ==="
+            ls -lah output 2>/dev/null || true
+
+          } 2>&1 | tee logs/final-storage.log
+
+      # ---------------------------------------------------------
+      # 12. SUCCESS ARTIFACT
+      # ---------------------------------------------------------
       - name: Upload vendor package
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: caymanlm-vendor-lineage23.2
@@ -303,35 +432,91 @@ jobs:
             output/vendor-caymanlm-lineage23.2.tar.gz
             output/vendor-caymanlm-lineage23.2.tar.gz.sha256
             output/vendor.img.sha256
-            output/vendor-audit.txt
-          if-no-files-found: error
+            logs/feature-audit.log
+            logs/verification.log
+            logs/final-storage.log
           compression-level: 0
           retention-days: 7
+          if-no-files-found: error
 
-      - name: Upload raw vendor image separately
+      # ---------------------------------------------------------
+      # 13. RAW IMAGE ONLY IF IT IS <= 500 MiB
+      # ---------------------------------------------------------
+      - name: Check raw image size
+        if: success()
+        run: |
+          set -Eeuo pipefail
+
+          SIZE=$(stat -c%s output/vendor.img)
+          LIMIT=$((500 * 1024 * 1024))
+
+          echo "vendor.img size: $SIZE bytes"
+          echo "500 MiB limit:   $LIMIT bytes"
+
+          if [ "$SIZE" -le "$LIMIT" ]; then
+            echo "RAW_OK=true" >> "$GITHUB_ENV"
+            echo "Raw image is within 500 MiB."
+          else
+            echo "RAW_OK=false" >> "$GITHUB_ENV"
+            echo "Raw image exceeds 500 MiB."
+            echo "Compressed tar.gz is the primary artifact."
+          fi
+
+      - name: Upload raw vendor.img
+        if: success() && env.RAW_OK == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: caymanlm-vendor-raw
+          name: caymanlm-vendor-img
           path: output/vendor.img
-          if-no-files-found: error
           compression-level: 0
           retention-days: 3
+          if-no-files-found: error
 
-      - name: Collect failure logs
+      # ---------------------------------------------------------
+      # 14. FAILURE LOGS
+      # ---------------------------------------------------------
+      - name: Collect failure diagnostics
         if: failure()
         run: |
+          set +e
+
           mkdir -p failure-logs
 
-          df -h > failure-logs/disk.txt || true
-          free -h > failure-logs/memory.txt || true
-          nproc > failure-logs/cpu.txt || true
+          echo "==========================================" \
+            > failure-logs/FAILURE.txt
 
-          find . -maxdepth 3 -type f \
-            \( -name '*.log' -o -name '*.txt' \) \
-            -print > failure-logs/files.txt || true
+          echo "CAYMANLM VENDOR BUILD FAILED" \
+            >> failure-logs/FAILURE.txt
 
-          cp audit/vendor-audit.txt \
-            failure-logs/vendor-audit.txt 2>/dev/null || true
+          date >> failure-logs/FAILURE.txt
+
+          echo >> failure-logs/FAILURE.txt
+          echo "=== DISK ===" >> failure-logs/FAILURE.txt
+          df -h >> failure-logs/FAILURE.txt
+
+          echo >> failure-logs/FAILURE.txt
+          echo "=== MEMORY ===" >> failure-logs/FAILURE.txt
+          free -h >> failure-logs/FAILURE.txt
+
+          echo >> failure-logs/FAILURE.txt
+          echo "=== CPU ===" >> failure-logs/FAILURE.txt
+          nproc >> failure-logs/FAILURE.txt
+
+          echo >> failure-logs/FAILURE.txt
+          echo "=== FILESYSTEM ===" >> failure-logs/FAILURE.txt
+          mount >> failure-logs/FAILURE.txt
+
+          cp -r logs/* failure-logs/ 2>/dev/null || true
+
+          find . \
+            -maxdepth 3 \
+            -type f \
+            -name '*.log' \
+            -print \
+            >> failure-logs/FAILURE.txt 2>/dev/null || true
+
+          echo
+          echo "Failure diagnostics collected."
 
       - name: Upload failure logs
         if: failure()
@@ -339,6 +524,6 @@ jobs:
         with:
           name: caymanlm-vendor-build-failure-logs
           path: failure-logs/
-          if-no-files-found: warn
           compression-level: 9
           retention-days: 14
+          if-no-files-found: warn
