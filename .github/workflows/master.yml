@@ -28,9 +28,6 @@ jobs:
 
     name: LM-G900 Vendor Build - 75GB Runner
 
-    # IMPORTANT:
-    # This label must match the larger GitHub-hosted runner
-    # created in Settings -> Actions -> Runners.
     runs-on: lm-g900-ubuntu-75gb
 
     timeout-minutes: 360
@@ -339,7 +336,7 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - VERIFY REFS BEFORE SYNC
+      # V04 - VERIFY REFS BEFORE SYNC + RETRY + DEPTH=1
       # ============================================================
 
       - name: V04 - Verify refs BEFORE sync
@@ -390,24 +387,49 @@ jobs:
           df -h
           df -ih
 
+          # ----------------------------------------------
+          # REPO SYNC WITH RETRY (3 attempts) + DEPTH=1
+          # ----------------------------------------------
           set +e
 
-          repo sync \
-            --current-branch \
-            --force-sync \
-            --no-clone-bundle \
-            --no-tags \
-            --optimized-fetch \
-            --prune \
-            --fail-fast \
-            -j2 \
-            2>&1 | tee "$sync_log"
+          max_retries=3
+          attempt=1
+          rc=1
 
-          rc=${PIPESTATUS[0]}
+          while [[ $attempt -le $max_retries ]]; do
+            echo
+            echo "=================================================="
+            echo "REPO SYNC ATTEMPT $attempt of $max_retries"
+            echo "=================================================="
+
+            repo sync \
+              --current-branch \
+              --force-sync \
+              --no-clone-bundle \
+              --no-tags \
+              --optimized-fetch \
+              --prune \
+              --fail-fast \
+              --depth=1 \
+              -j2 \
+              2>&1 | tee -a "$sync_log"
+
+            rc=${PIPESTATUS[0]}
+
+            if [[ $rc -eq 0 ]]; then
+              echo "repo_sync_exit=0" | tee -a "$sync_log"
+              break
+            else
+              echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
+              if [[ $attempt -lt $max_retries ]]; then
+                echo "Waiting 15 seconds before retry..."
+                sleep 15
+              fi
+              ((attempt++))
+            fi
+          done
 
           set -e
-
-          echo "repo_sync_exit=$rc" | tee -a "$sync_log"
 
           echo
           echo "=================================================="
@@ -417,7 +439,13 @@ jobs:
           df -h
           df -ih
 
-          exit "$rc"
+          # If all attempts failed, exit with error
+          if [[ $rc -ne 0 ]]; then
+            echo "FATAL: repo sync failed after $max_retries attempts." | tee -a "$sync_log"
+            exit $rc
+          fi
+
+          echo "V04 PASS: repo sync completed successfully."
 
       # ============================================================
       # V05 - VERIFY SYNCED SOURCE
@@ -663,7 +691,7 @@ jobs:
             2>/dev/null | head -500 || true
 
       # ============================================================
-      # V11 - ALWAYS COLLECT DIAGNOSTICS
+      # V11 - ALWAYS COLLECT DIAGNOSTICS + ERROR.TXT
       # ============================================================
 
       - name: V11 - ALWAYS collect diagnostics
@@ -704,15 +732,31 @@ jobs:
             echo "V09=${{ steps.v09.outcome }}"
             echo "V10=${{ steps.v10.outcome }}"
             echo
-            echo "=== ERROR / FAILURE SUMMARY ==="
+            echo "=== ERROR / FAILURE SUMMARY (full context) ==="
 
             grep -RniE \
-              'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28' \
+              'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback' \
               "$DIAG_DIR" \
-              2>/dev/null | tail -1500 || true
+              2>/dev/null | tail -5000 || true
 
           } > "$DIAG_DIR/99-ERROR-SUMMARY.log"
 
+          # ------------------------------------------------------------
+          # CREATE A DEDICATED error.txt FILE (ONLY ERROR LINES)
+          # ------------------------------------------------------------
+          {
+            echo "========== ERROR LOG (extracted) =========="
+            echo "Generated: $(date -u +%FT%TZ)"
+            echo
+            grep -RniE \
+              'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback' \
+              "$DIAG_DIR" \
+              2>/dev/null | head -2000
+          } > "$DIAG_DIR/error.txt"
+
+          echo "Created $DIAG_DIR/error.txt"
+
+          # Copy any vendor image if exists
           out="android/out/target/product/$DEVICE_CODENAME"
 
           find "$out" \
@@ -723,8 +767,8 @@ jobs:
             2>/dev/null || true
 
           {
-            echo "MANDATORY ERROR LOG:"
-            echo "$DIAG_DIR/99-ERROR-SUMMARY.log"
+            echo "MANDATORY ERROR LOG (short version):"
+            echo "$DIAG_DIR/error.txt"
             echo
             echo "=== DIAGNOSTIC FILES ==="
 
@@ -745,7 +789,7 @@ jobs:
 
           } > vendor_out/ARTIFACT-LIST.txt
 
-          # Create compressed diagnostics only if possible.
+          # Compress diagnostics
           tar -czf \
             "vendor_out/LM-G900-VENDOR-DIAGNOSTICS-${GITHUB_RUN_ID}.tar.gz" \
             "$DIAG_DIR" \
