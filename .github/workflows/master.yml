@@ -28,7 +28,7 @@ jobs:
 
     name: LM-G900 Vendor Build - 75GB Runner
 
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04   # پبلک رنر استعمال کریں (یا اپنا سیلف ہوسٹڈ اگر دستیاب ہو)
 
     timeout-minutes: 360
 
@@ -140,10 +140,10 @@ jobs:
           } | tee "$GITHUB_WORKSPACE/$DIAG_DIR/00-run.log"
 
       # ============================================================
-      # V01 - INSTALL ONLY REQUIRED DEPENDENCIES
+      # V01 - INSTALL ONLY REQUIRED DEPENDENCIES + UPDATE REPO
       # ============================================================
 
-      - name: V01 - Install build dependencies
+      - name: V01 - Install build dependencies and update repo
         id: v01
         shell: bash
         run: |
@@ -182,14 +182,13 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-          if ! command -v repo >/dev/null 2>&1; then
-            curl -fL --retry 5 --retry-delay 3 \
-              https://storage.googleapis.com/git-repo-downloads/repo \
-              -o "$HOME/repo"
+          # Ensure latest repo is installed
+          curl -fL --retry 5 --retry-delay 3 \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "$HOME/repo"
 
-            chmod +x "$HOME/repo"
-            sudo install -m 0755 "$HOME/repo" /usr/local/bin/repo
-          fi
+          chmod +x "$HOME/repo"
+          sudo install -m 0755 "$HOME/repo" /usr/local/bin/repo
 
           git --version
           repo --version
@@ -336,10 +335,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - VERIFY REFS BEFORE SYNC + RETRY + DEPTH=1
+      # V04 - VERIFY REFS BEFORE SYNC + RETRY (NO --depth)
       # ============================================================
 
-      - name: V04 - Verify refs BEFORE sync
+      - name: V04 - Verify refs and repo sync
         id: v04
         shell: bash
         run: |
@@ -388,7 +387,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC WITH RETRY (3 attempts) + DEPTH=1
+          # REPO SYNC WITH RETRY (3 attempts) - NO --depth
           # ----------------------------------------------
           set +e
 
@@ -410,7 +409,6 @@ jobs:
               --optimized-fetch \
               --prune \
               --fail-fast \
-              --depth=1 \
               -j2 \
               2>&1 | tee -a "$sync_log"
 
