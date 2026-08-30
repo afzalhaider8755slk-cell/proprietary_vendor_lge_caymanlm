@@ -7,6 +7,9 @@ permissions:
   contents: read
 
 env:
+  # Hardware identity
+  DEVICE_MODEL: LM-G900
+  DEVICE_VARIANT: G900EMW
   DEVICE: G900EMW
   CODENAME: caymanlm
 
@@ -58,6 +61,8 @@ jobs:
             echo "========================================"
             echo "LG Velvet G900EMW Vendor Build"
             echo "========================================"
+            echo "device_model=${DEVICE_MODEL}"
+            echo "device_variant=${DEVICE_VARIANT}"
             echo "device=${DEVICE}"
             echo "codename=${CODENAME}"
             echo "lineage_branch=${LINEAGE_BRANCH}"
@@ -69,6 +74,7 @@ jobs:
             echo "artifact_chunk_size=${ARTIFACT_CHUNK_SIZE}"
             echo "android_target=Android 16 QPR2"
             echo "build_target=vendor.img only"
+            echo "required_features=fingerprint,vibration,dual-sim/ril,audio,ims,wifi-calling/vowifi"
             echo "kernel_build=false"
             echo "========================================"
           } | tee "$GITHUB_WORKSPACE/ci-diagnostics/vendor/00-context.txt"
@@ -231,21 +237,27 @@ jobs:
           cat > .repo/local_manifests/g900emw.xml <<EOF
           <manifest>
 
+            <!--
+              IMPORTANT:
+              Do not redefine the standard LineageOS "github" remote.
+              The previous workflow failed at repo sync because the
+              local manifest attempted to redefine an existing remote
+              with different attributes.
+            -->
             <remote
-              name="github"
-              fetch="https://github.com/"
-              revision="refs/heads/${LINEAGE_BRANCH}" />
+              name="g900_lg_github"
+              fetch="https://github.com/" />
 
             <project
               name="Hirashi-so/android_device_lge_caymanlm"
               path="device/lge/caymanlm"
-              remote="github"
+              remote="g900_lg_github"
               revision="${DEVICE_REF}" />
 
             <project
               name="afzalhaider8755slk-cell/proprietary_vendor_lge_caymanlm"
               path="vendor/lge/caymanlm"
-              remote="github"
+              remote="g900_lg_github"
               revision="${VENDOR_REF}" />
 
           </manifest>
@@ -464,9 +476,78 @@ jobs:
           } 2>&1 | tee "$LOG"
 
       # ------------------------------------------------------------
-      # V12 — Environment + lunch
+      # V12 — Enforce required hardware/service feature preservation
       # ------------------------------------------------------------
-      - name: "V12 • Prepare Android build environment"
+      - name: "V12 • Enforce G900EMW hardware feature contract"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          OUT="$GITHUB_WORKSPACE/ci-diagnostics/vendor/10-feature-contract.txt"
+
+          {
+            echo "========================================"
+            echo "LG Velvet LM-G900 / G900EMW FEATURE CONTRACT"
+            echo "========================================"
+            echo "model=${DEVICE_MODEL}"
+            echo "variant=${DEVICE_VARIANT}"
+            echo "codename=${CODENAME}"
+            echo
+            echo "The build must preserve existing implementation/payloads for:"
+            echo "  - Fingerprint / biometric"
+            echo "  - Vibration / haptics"
+            echo "  - Dual-SIM / RIL / telephony / modem"
+            echo "  - Audio / mixer / ACDB"
+            echo "  - IMS"
+            echo "  - Wi-Fi Calling / VoWiFi / IWLAN / ePDG"
+            echo
+            echo "=== Device properties and feature declarations ==="
+            grep -RInE               'fingerprint|biometric|vibrator|vibration|haptic|dual.?sim|dsds|ril|telephony|modem|audio|audio_policy|mixer_paths|acdb|ims|imsrcs|iwlan|epdg|vowifi|wifi.?calling|wfc'               device/lge/caymanlm               2>/dev/null | head -1000 || true
+
+            echo
+            echo "=== Vendor payloads ==="
+            find vendor/lge/caymanlm/proprietary/vendor               -type f               \(                 -iname '*finger*' -o -iname '*biometric*' -o                 -iname '*vib*' -o -iname '*haptic*' -o                 -iname '*ril*' -o -iname '*radio*' -o -iname '*modem*' -o                 -iname '*audio*' -o -iname '*mixer*' -o -iname '*.acdb' -o                 -iname '*ims*' -o -iname '*iwlan*' -o -iname '*epdg*' -o                 -iname '*vowifi*' -o -iname '*wfc*'               \) -print 2>/dev/null | sort | head -1500 || true
+
+            echo
+            echo "=== Relevant Android properties ==="
+            grep -RInE               'persist\.radio|ro\.telephony|telephony\.lpa|ims|iwlan|epdg|vowifi|wfc|wifi_calling|vibrator|fingerprint'               device/lge/caymanlm               vendor/lge/caymanlm               2>/dev/null | head -1000 || true
+
+          } 2>&1 | tee "$OUT"
+
+          # This is a preservation/audit contract, not a fake feature generator.
+          # We fail only when the device/vendor trees are completely unable to
+          # provide any implementation evidence for a required feature.
+          declare -A FEATURE_PATTERNS=(
+            [fingerprint]='fingerprint|biometric'
+            [vibration]='vibrator|vibration|haptic'
+            [dual_sim_ril]='dual.?sim|dsds|ril|telephony|modem'
+            [audio]='audio|mixer|acdb'
+            [ims]='ims|imsrcs'
+            [wifi_calling]='vowifi|vo.?wifi|wifi.?calling|iwlan|epdg|wfc'
+          )
+
+          failed=0
+          for feature in "${!FEATURE_PATTERNS[@]}"; do
+            pattern="${FEATURE_PATTERNS[$feature]}"
+            if ! grep -RIEq "$pattern"                 device/lge/caymanlm vendor/lge/caymanlm 2>/dev/null; then
+              echo "::error::No source-tree evidence found for required feature: $feature"
+              failed=1
+            else
+              echo "PASS: $feature"
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Required G900EMW hardware/service feature contract was not satisfied."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # V13 — Environment + lunch
+      # ------------------------------------------------------------
+      - name: "V13 • Prepare Android build environment"
         shell: bash
         run: |
           set -o pipefail
@@ -480,9 +561,9 @@ jobs:
             "$GITHUB_WORKSPACE/ci-diagnostics/vendor/11-lunch.log"
 
       # ------------------------------------------------------------
-      # V13 — Product configuration audit
+      # V14 — Product configuration audit
       # ------------------------------------------------------------
-      - name: "V13 • Audit product vendor configuration"
+      - name: "V14 • Audit product vendor configuration"
         shell: bash
         run: |
           set +e
@@ -515,9 +596,9 @@ jobs:
           exit 0
 
       # ------------------------------------------------------------
-      # V14 — Build vendor.img ONLY
+      # V15 — Build vendor.img ONLY
       # ------------------------------------------------------------
-      - name: "V14 • Build vendor.img ONLY"
+      - name: "V15 • Build vendor.img ONLY"
         shell: bash
         run: |
           set -o pipefail
@@ -536,9 +617,9 @@ jobs:
             "$GITHUB_WORKSPACE/ci-diagnostics/vendor/13-vendor-build.log"
 
       # ------------------------------------------------------------
-      # V15 — Locate output robustly
+      # V16 — Locate output robustly
       # ------------------------------------------------------------
-      - name: "V15 • Locate vendor.img"
+      - name: "V16 • Locate vendor.img"
         shell: bash
         run: |
           set -euxo pipefail
@@ -569,9 +650,9 @@ jobs:
           test -s "$PRODUCT_OUT/vendor.img"
 
       # ------------------------------------------------------------
-      # V16 — Validate vendor.img
+      # V17 — Validate vendor.img
       # ------------------------------------------------------------
-      - name: "V16 • Validate vendor.img"
+      - name: "V17 • Validate vendor.img"
         shell: bash
         run: |
           set -euxo pipefail
@@ -613,9 +694,9 @@ jobs:
             "$GITHUB_WORKSPACE/ci-diagnostics/vendor/15-vendor-validation.txt"
 
       # ------------------------------------------------------------
-      # V17 — VINTF / vendor payload audit
+      # V18 — VINTF / vendor payload audit
       # ------------------------------------------------------------
-      - name: "V17 • Audit VINTF and critical payloads in vendor.img"
+      - name: "V18 • Audit VINTF and critical payloads in vendor.img"
         shell: bash
         run: |
           set +e
@@ -649,9 +730,9 @@ jobs:
           exit 0
 
       # ------------------------------------------------------------
-      # V18 — Compress vendor.img
+      # V19 — Compress vendor.img
       # ------------------------------------------------------------
-      - name: "V18 • Create storage-safe vendor archive"
+      - name: "V19 • Create storage-safe vendor archive"
         shell: bash
         run: |
           set -euxo pipefail
@@ -692,9 +773,9 @@ jobs:
             "$GITHUB_WORKSPACE/ci-diagnostics/vendor/17-package-size.txt"
 
       # ------------------------------------------------------------
-      # V19 — Ensure every artifact upload part <= 450 MiB
+      # V20 — Ensure every artifact upload part <= 450 MiB
       # ------------------------------------------------------------
-      - name: "V19 • Split archive if larger than 450 MiB"
+      - name: "V20 • Split archive if larger than 450 MiB"
         shell: bash
         run: |
           set -euxo pipefail
@@ -757,9 +838,9 @@ jobs:
           )
 
       # ------------------------------------------------------------
-      # V20 — Create extraction instructions
+      # V21 — Create extraction instructions
       # ------------------------------------------------------------
-      - name: "V20 • Create artifact instructions"
+      - name: "V21 • Create artifact instructions"
         shell: bash
         run: |
           set -euxo pipefail
@@ -767,7 +848,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/vendor-result"
 
           cat > README-EXTRACT.txt <<'EOF'
-          LG Velvet G900EMW
+          LG Velvet LM-G900 (G900EMW)
           Android 16 QPR2 / LineageOS 23.2
           Vendor.img build
 
@@ -791,9 +872,9 @@ jobs:
           EOF
 
       # ------------------------------------------------------------
-      # V21 — Final diagnostics
+      # V22 — Final diagnostics
       # ------------------------------------------------------------
-      - name: "V21 • Final storage and result report"
+      - name: "V22 • Final storage and result report"
         if: always()
         shell: bash
         run: |
@@ -824,13 +905,13 @@ jobs:
             "$GITHUB_WORKSPACE/ci-diagnostics/vendor/99-final-report.txt"
 
       # ------------------------------------------------------------
-      # V22 — Upload vendor result ALWAYS
+      # V23 — Upload vendor result ALWAYS
       # ------------------------------------------------------------
-      - name: "V22 • Upload vendor result"
+      - name: "V23 • Upload vendor result"
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "G900EMW-VENDOR-${{ github.run_id }}"
+          name: "LM-G900-G900EMW-VENDOR-${{ github.run_id }}"
           path: |
             vendor-result/**
           if-no-files-found: warn
@@ -838,13 +919,13 @@ jobs:
           retention-days: 30
 
       # ------------------------------------------------------------
-      # V23 — Upload diagnostics ALWAYS
+      # V24 — Upload diagnostics ALWAYS
       # ------------------------------------------------------------
-      - name: "V23 • Upload build logs ALWAYS"
+      - name: "V24 • Upload build logs ALWAYS"
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "G900EMW-VENDOR-LOGS-${{ github.run_id }}"
+          name: "LM-G900-G900EMW-VENDOR-LOGS-${{ github.run_id }}"
           path: |
             ci-diagnostics/vendor/**
           if-no-files-found: warn
@@ -852,9 +933,9 @@ jobs:
           retention-days: 30
 
       # ------------------------------------------------------------
-      # V24 — Cleanup only after artifacts have been uploaded
+      # V25 — Cleanup only after artifacts have been uploaded
       # ------------------------------------------------------------
-      - name: "V24 • Cleanup temporary Android source"
+      - name: "V25 • Cleanup temporary Android source"
         if: always()
         shell: bash
         run: |
