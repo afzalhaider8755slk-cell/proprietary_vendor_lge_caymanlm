@@ -1,354 +1,867 @@
-      - name: Build vendor.img
+name: "LG Velvet G900EMW • Android 16 QPR2 • Vendor.img Only"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEVICE: G900EMW
+  CODENAME: caymanlm
+
+  # Android / Lineage target
+  LINEAGE_BRANCH: lineage-23.2
+
+  # Device tree supplied by Afzal
+  DEVICE_REPO: https://github.com/Hirashi-so/android_device_lge_caymanlm.git
+  DEVICE_REF: sixteen
+
+  # Proprietary vendor tree supplied by Afzal
+  VENDOR_REPO: https://github.com/afzalhaider8755slk-cell/proprietary_vendor_lge_caymanlm.git
+  VENDOR_REF: sixteen
+
+  # Keep every uploaded artifact part safely below 500 MiB.
+  ARTIFACT_CHUNK_SIZE: 450m
+
+  # Android build
+  TARGET: lineage_caymanlm-userdebug
+
+jobs:
+
+  vendor:
+    name: "Build vendor.img"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+
+      # ------------------------------------------------------------
+      # V01 — Checkout workflow only
+      # ------------------------------------------------------------
+      - name: "V01 • Checkout workflow"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ------------------------------------------------------------
+      # V02 — Create diagnostics immediately
+      # ------------------------------------------------------------
+      - name: "V02 • Initialize diagnostics"
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -u
 
-          echo "=========================================="
-          echo "   CAYMANLM VENDOR IMAGE BUILD"
-          echo "=========================================="
-
-          TOP="${GITHUB_WORKSPACE}"
-          VENDOR_SRC="${TOP}/vendor/lge/caymanlm"
-          LOG_DIR="${TOP}/vendor-build-logs"
-          OUT_DIR="${TOP}/vendor-output"
-
-          mkdir -p "${LOG_DIR}" "${OUT_DIR}"
-
-          exec > >(tee "${LOG_DIR}/vendor-build.log") 2>&1
-
-          echo "[INFO] Workspace: ${TOP}"
-          echo "[INFO] Date: $(date -u)"
-
-          # -------------------------------------------------
-          # 1. Validate source
-          # -------------------------------------------------
-
-          test -f "${VENDOR_SRC}/caymanlm-vendor.mk" || {
-            echo "[ERROR] caymanlm-vendor.mk not found"
-            exit 1
-          }
-
-          test -d "${VENDOR_SRC}/proprietary/vendor" || {
-            echo "[ERROR] proprietary/vendor not found"
-            exit 1
-          }
-
-          echo "[OK] Vendor source validated"
-
-          # -------------------------------------------------
-          # 2. Locate Android build tree
-          # -------------------------------------------------
-
-          if [[ -f "${TOP}/build/envsetup.sh" ]]; then
-            BUILD_TOP="${TOP}"
-          elif [[ -d "${TOP}/lineage" && -f "${TOP}/lineage/build/envsetup.sh" ]]; then
-            BUILD_TOP="${TOP}/lineage"
-          elif [[ -f "${TOP}/aosp/build/envsetup.sh" ]]; then
-            BUILD_TOP="${TOP}/aosp"
-          else
-            echo "[ERROR] Android/LineageOS source tree not found"
-            echo "[INFO] Expected build/envsetup.sh"
-            exit 1
-          fi
-
-          echo "[OK] BUILD_TOP=${BUILD_TOP}"
-
-          cd "${BUILD_TOP}"
-
-          # -------------------------------------------------
-          # 3. Copy vendor tree into Android source
-          # -------------------------------------------------
-
-          mkdir -p vendor/lge
-
-          rm -rf vendor/lge/caymanlm
-
-          cp -a "${VENDOR_SRC}" vendor/lge/caymanlm
-
-          echo "[OK] vendor/lge/caymanlm installed"
-
-          # -------------------------------------------------
-          # 4. Load Lineage/AOSP environment
-          # -------------------------------------------------
-
-          source build/envsetup.sh
-
-          echo "[OK] envsetup loaded"
-
-          # -------------------------------------------------
-          # 5. Detect caymanlm product
-          # -------------------------------------------------
-
-          PRODUCT=""
-
-          for candidate in \
-            lineage_caymanlm \
-            caymanlm \
-            aosp_caymanlm
-          do
-            if lunch "${candidate}-userdebug" >/dev/null 2>&1; then
-              PRODUCT="${candidate}"
-              break
-            fi
-          done
-
-          if [[ -z "${PRODUCT}" ]]; then
-            echo "[ERROR] No caymanlm lunch target found"
-            echo
-            echo "Available caymanlm targets:"
-            lunch 2>/dev/null | grep -i caymanlm || true
-            exit 1
-          fi
-
-          echo "[OK] PRODUCT=${PRODUCT}"
-
-          # Reload environment after successful lunch
-          source build/envsetup.sh
-          lunch "${PRODUCT}-userdebug"
-
-          # -------------------------------------------------
-          # 6. Force vendor package into product
-          # -------------------------------------------------
-
-          export PRODUCT_SOONG_NAMESPACES="${PRODUCT_SOONG_NAMESPACES:-}:vendor/lge/caymanlm"
-
-          # Find the product configuration that owns PRODUCT_PACKAGES
-          PRODUCT_MK="$(find device vendor -type f \
-            \( -name "*${PRODUCT}.mk" -o -name "lineage_${PRODUCT}.mk" \) \
-            2>/dev/null | head -1 || true)"
-
-          if [[ -n "${PRODUCT_MK}" ]]; then
-            echo "[INFO] Product MK: ${PRODUCT_MK}"
-          else
-            echo "[WARN] Product MK not directly located"
-          fi
-
-          # -------------------------------------------------
-          # 7. Verify vendor makefile
-          # -------------------------------------------------
-
-          echo
-          echo "=== Vendor MK ==="
-          head -30 vendor/lge/caymanlm/caymanlm-vendor.mk
-
-          grep -q "PRODUCT_COPY_FILES" \
-            vendor/lge/caymanlm/caymanlm-vendor.mk || {
-              echo "[ERROR] PRODUCT_COPY_FILES missing"
-              exit 1
-            }
-
-          # -------------------------------------------------
-          # 8. Build vendor image
-          # -------------------------------------------------
-
-          echo
-          echo "=========================================="
-          echo "   STARTING vendorimage BUILD"
-          echo "=========================================="
-
-          BUILD_START="$(date +%s)"
-
-          if ! m vendorimage -j"$(nproc)"; then
-            echo "[ERROR] vendorimage build failed"
-
-            echo
-            echo "=== OUT DIRECTORY ==="
-            find out/target/product -maxdepth 3 \
-              -type f \
-              \( -name "*vendor*" -o -name "*.log" \) \
-              -ls 2>/dev/null || true
-
-            exit 1
-          fi
-
-          BUILD_END="$(date +%s)"
-
-          echo
-          echo "[OK] vendorimage build completed"
-          echo "[INFO] Build time: $((BUILD_END - BUILD_START)) seconds"
-
-          # -------------------------------------------------
-          # 9. Locate vendor.img
-          # -------------------------------------------------
-
-          VENDOR_IMG=""
-
-          while IFS= read -r candidate; do
-            if [[ -f "${candidate}" ]]; then
-              VENDOR_IMG="${candidate}"
-              break
-            fi
-          done < <(
-            find "out/target/product" \
-              -type f \
-              -name "vendor.img" \
-              2>/dev/null
-          )
-
-          if [[ -z "${VENDOR_IMG}" ]]; then
-            echo "[ERROR] vendor.img was NOT generated"
-            exit 1
-          fi
-
-          echo "[OK] vendor.img found:"
-          echo "${VENDOR_IMG}"
-
-          # -------------------------------------------------
-          # 10. Copy only final image
-          # -------------------------------------------------
-
-          cp -f "${VENDOR_IMG}" "${OUT_DIR}/vendor.img"
-
-          sync
-
-          IMG_SIZE_BYTES="$(stat -c '%s' "${OUT_DIR}/vendor.img")"
-          IMG_SIZE_MB="$((IMG_SIZE_BYTES / 1024 / 1024))"
-
-          echo
-          echo "=== vendor.img ==="
-          ls -lh "${OUT_DIR}/vendor.img"
-          echo "[INFO] Size: ${IMG_SIZE_MB} MB"
-
-          # -------------------------------------------------
-          # 11. SHA256
-          # -------------------------------------------------
-
-          sha256sum "${OUT_DIR}/vendor.img" \
-            | tee "${OUT_DIR}/vendor.img.sha256"
-
-          # -------------------------------------------------
-          # 12. Image filesystem check
-          # -------------------------------------------------
-
-          echo
-          echo "=== Filesystem check ==="
-
-          if command -v file >/dev/null 2>&1; then
-            file "${OUT_DIR}/vendor.img" \
-              | tee "${LOG_DIR}/vendor-image-file.txt"
-          fi
-
-          if command -v simg2img >/dev/null 2>&1; then
-            simg2img \
-              "${OUT_DIR}/vendor.img" \
-              "${OUT_DIR}/vendor.raw.img" || true
-
-            if [[ -f "${OUT_DIR}/vendor.raw.img" ]]; then
-              file "${OUT_DIR}/vendor.raw.img" || true
-            fi
-          fi
-
-          # -------------------------------------------------
-          # 13. Feature audit against source
-          # -------------------------------------------------
-
-          AUDIT="${OUT_DIR}/vendor-feature-audit.txt"
+          mkdir -p "$GITHUB_WORKSPACE/ci-diagnostics/vendor"
 
           {
-            echo "=========================================="
-            echo "CAYMANLM VENDOR FEATURE AUDIT"
-            echo "=========================================="
-            echo
-            echo "Source: vendor/lge/caymanlm"
-            echo "Product: ${PRODUCT}"
-            echo
+            echo "========================================"
+            echo "LG Velvet G900EMW Vendor Build"
+            echo "========================================"
+            echo "device=${DEVICE}"
+            echo "codename=${CODENAME}"
+            echo "lineage_branch=${LINEAGE_BRANCH}"
+            echo "device_repo=${DEVICE_REPO}"
+            echo "device_ref=${DEVICE_REF}"
+            echo "vendor_repo=${VENDOR_REPO}"
+            echo "vendor_ref=${VENDOR_REF}"
+            echo "target=${TARGET}"
+            echo "artifact_chunk_size=${ARTIFACT_CHUNK_SIZE}"
+            echo "android_target=Android 16 QPR2"
+            echo "build_target=vendor.img only"
+            echo "kernel_build=false"
+            echo "========================================"
+          } | tee "$GITHUB_WORKSPACE/ci-diagnostics/vendor/00-context.txt"
 
-            echo "=== Fingerprint ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'finger|fps|goodix|fpc|syna|biometric' \
-              | head -100 || true
+          df -h | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/00-disk-before.txt"
 
-            echo
-            echo "=== Vibration / Haptic ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'vib|haptic|motor|qti.*vib' \
-              | head -100 || true
+          free -h | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/00-memory-before.txt"
 
-            echo
-            echo "=== Dual-SIM / RIL ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'radio|ril|qcril|modem|ims' \
-              | head -150 || true
+      # ------------------------------------------------------------
+      # V03 — Free the runner's preinstalled storage
+      # ------------------------------------------------------------
+      - name: "V03 • Reclaim runner storage"
+        shell: bash
+        run: |
+          set +e
 
-            echo
-            echo "=== Audio ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'audio|acdb|adsp|audio.primary|audio_policy' \
-              | head -150 || true
+          {
+            echo "=== Disk before cleanup ==="
+            df -h
 
-            echo
-            echo "=== IMS / VoLTE ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'ims|volte|qti.*ims|imsrcs' \
-              | head -150 || true
+            echo "=== Removing large preinstalled SDK/tool caches ==="
 
-            echo
-            echo "=== Wi-Fi / VoWiFi ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'wifi|wlan|wpa|hostap|iwlan|vowifi' \
-              | head -150 || true
+            sudo rm -rf /usr/local/lib/android/sdk/ndk/* 2>/dev/null || true
+            sudo rm -rf /usr/local/lib/android/sdk/system-images/* 2>/dev/null || true
+            sudo rm -rf /usr/local/lib/android/sdk/emulator/* 2>/dev/null || true
 
-            echo
-            echo "=== VINTF / HAL manifests ==="
-            find vendor/lge/caymanlm/proprietary \
-              -type f | grep -Ei \
-              'manifest.*xml|compatibility.*xml|vintf' \
-              | head -100 || true
+            sudo rm -rf /opt/ghc 2>/dev/null || true
+            sudo rm -rf /opt/hostedtoolcache/CodeQL 2>/dev/null || true
 
-          } | tee "${AUDIT}"
+            sudo apt-get clean 2>/dev/null || true
+            sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
-          # -------------------------------------------------
-          # 14. Compression strategy
-          # -------------------------------------------------
+            echo "=== Disk after cleanup ==="
+            df -h
+          } 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/01-storage-cleanup.log"
 
-          echo
-          echo "=========================================="
-          echo "   STORAGE-SAFE ARTIFACT PACKAGING"
-          echo "=========================================="
+          df -h | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/01-disk-after-cleanup.txt"
 
-          if [[ "${IMG_SIZE_BYTES}" -gt $((500 * 1024 * 1024)) ]]; then
+      # ------------------------------------------------------------
+      # V04 — Dependencies
+      # ------------------------------------------------------------
+      - name: "V04 • Install Android build dependencies"
+        shell: bash
+        run: |
+          set -o pipefail
 
-            echo "[INFO] vendor.img > 500 MB"
-            echo "[INFO] Creating compressed archive"
+          sudo apt-get update 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/02-apt-update.log"
 
-            tar -C "${OUT_DIR}" \
-              -czf "${OUT_DIR}/vendor.img.tar.gz" \
-              vendor.img
+          sudo apt-get install -y \
+            git \
+            git-lfs \
+            gnupg \
+            flex \
+            bison \
+            build-essential \
+            zip \
+            unzip \
+            curl \
+            wget \
+            rsync \
+            bc \
+            ccache \
+            lz4 \
+            lzop \
+            liblz4-tool \
+            libxml2-utils \
+            xsltproc \
+            pngcrush \
+            schedtool \
+            gperf \
+            python3 \
+            python3-pip \
+            python3-protobuf \
+            protobuf-compiler \
+            lib32readline-dev \
+            lib32z1-dev \
+            lib32ncurses-dev \
+            libc6-dev-i386 \
+            libncurses-dev \
+            libssl-dev \
+            libxml2-dev \
+            zlib1g-dev \
+            libgl1-mesa-dev \
+            fontconfig \
+            erofs-utils \
+            e2fsprogs \
+            xxd \
+            file \
+            jq \
+            pigz \
+            pv \
+            cpio \
+            2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/02-dependencies.log"
 
-            rm -f "${OUT_DIR}/vendor.img"
+      # ------------------------------------------------------------
+      # V05 — repo launcher
+      # ------------------------------------------------------------
+      - name: "V05 • Install repo launcher"
+        shell: bash
+        run: |
+          set -euxo pipefail
 
-            echo "[OK] Raw vendor.img removed from artifact directory"
+          mkdir -p "$RUNNER_TEMP/bin"
 
-          else
+          curl -fsSL \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "$RUNNER_TEMP/bin/repo"
 
-            echo "[INFO] vendor.img <= 500 MB"
-            echo "[OK] Keeping raw vendor.img"
+          chmod 0755 "$RUNNER_TEMP/bin/repo"
 
+          "$RUNNER_TEMP/bin/repo" version | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/03-repo-version.txt"
+
+      # ------------------------------------------------------------
+      # V06 — Initialize Lineage source
+      # ------------------------------------------------------------
+      - name: "V06 • Initialize LineageOS 23.2 source"
+        shell: bash
+        run: |
+          set -o pipefail
+
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
+          mkdir -p "$RUNNER_TEMP/android"
+          cd "$RUNNER_TEMP/android"
+
+          repo init \
+            -u https://github.com/LineageOS/android.git \
+            -b "$LINEAGE_BRANCH" \
+            --depth=1 \
+            --no-repo-verify \
+            2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/04-repo-init.log"
+
+          test -f .repo/manifest.xml
+
+          repo version | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/04-repo-version.txt"
+
+      # ------------------------------------------------------------
+      # V07 — Local manifest
+      # ------------------------------------------------------------
+      - name: "V07 • Add G900EMW device and vendor trees"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
+          cd "$RUNNER_TEMP/android"
+
+          mkdir -p .repo/local_manifests
+
+          cat > .repo/local_manifests/g900emw.xml <<EOF
+          <manifest>
+
+            <remote
+              name="github"
+              fetch="https://github.com/"
+              revision="refs/heads/${LINEAGE_BRANCH}" />
+
+            <project
+              name="Hirashi-so/android_device_lge_caymanlm"
+              path="device/lge/caymanlm"
+              remote="github"
+              revision="${DEVICE_REF}" />
+
+            <project
+              name="afzalhaider8755slk-cell/proprietary_vendor_lge_caymanlm"
+              path="vendor/lge/caymanlm"
+              remote="github"
+              revision="${VENDOR_REF}" />
+
+          </manifest>
+          EOF
+
+          cat .repo/local_manifests/g900emw.xml | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/05-local-manifest.xml"
+
+      # ------------------------------------------------------------
+      # V08 — Sync source
+      # ------------------------------------------------------------
+      - name: "V08 • Sync only required Android source"
+        shell: bash
+        run: |
+          set -o pipefail
+
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
+          cd "$RUNNER_TEMP/android"
+
+          repo sync \
+            -c \
+            --force-sync \
+            --no-clone-bundle \
+            --no-tags \
+            --optimized-fetch \
+            --prune \
+            -j2 \
+            2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/06-repo-sync.log"
+
+      # ------------------------------------------------------------
+      # V09 — Verify exact source
+      # ------------------------------------------------------------
+      - name: "V09 • Verify source trees"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          test -d device/lge/caymanlm
+          test -d vendor/lge/caymanlm
+
+          test -f device/lge/caymanlm/AndroidProducts.mk
+
+          if [ ! -f device/lge/caymanlm/lineage_caymanlm.mk ]; then
+            echo "::error::lineage_caymanlm.mk was not found."
+            exit 1
           fi
 
-          # -------------------------------------------------
-          # 15. Final output
-          # -------------------------------------------------
+          if [ ! -f vendor/lge/caymanlm/Android.bp ] &&
+             [ ! -f vendor/lge/caymanlm/Android.mk ]; then
+            echo "::error::Vendor Android.bp/Android.mk was not found."
+            exit 1
+          fi
 
-          echo
-          echo "=== FINAL OUTPUT ==="
-          find "${OUT_DIR}" \
-            -maxdepth 1 \
-            -type f \
-            -printf '%f %s bytes\n' \
-            | sort
+          {
+            echo "=== Device commit ==="
+            git -C device/lge/caymanlm rev-parse HEAD
 
-          echo
-          echo "=== FINAL DISK USAGE ==="
-          df -h .
+            echo "=== Vendor commit ==="
+            git -C vendor/lge/caymanlm rev-parse HEAD
 
-          echo
-          echo "=========================================="
-          echo "   VENDOR BUILD STAGE COMPLETE"
-          echo "=========================================="
+            echo "=== Device tree ==="
+            find device/lge/caymanlm -maxdepth 2 -type f | sort | head -200
+
+            echo "=== Vendor tree size ==="
+            du -sh vendor/lge/caymanlm
+
+            echo "=== Vendor file count ==="
+            find vendor/lge/caymanlm -type f | wc -l
+          } | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/07-source-verification.txt"
+
+      # ------------------------------------------------------------
+      # V10 — Hardware feature audit
+      # ------------------------------------------------------------
+      - name: "V10 • Audit required hardware compatibility"
+        shell: bash
+        run: |
+          set +e
+
+          cd "$RUNNER_TEMP/android"
+
+          {
+            echo "========================================"
+            echo "REQUIRED HARDWARE AUDIT"
+            echo "========================================"
+
+            echo
+            echo "===== FINGERPRINT ====="
+            grep -RInE \
+              'fingerprint|biometric|goodix|fod|fps|fpsph' \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              2>/dev/null | head -300
+
+            echo
+            echo "===== VIBRATION ====="
+            grep -RInE \
+              'vibrator|vibration|haptic|haptics|qpnp.*vib' \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              2>/dev/null | head -300
+
+            echo
+            echo "===== DUAL SIM / RIL ====="
+            grep -RInE \
+              'dual.?sim|dsds|ril|radio|telephony|modem' \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              2>/dev/null | head -400
+
+            echo
+            echo "===== AUDIO ====="
+            grep -RInE \
+              'audio|audio\.primary|audio_policy|mixer_paths|acdb' \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              2>/dev/null | head -400
+
+            echo
+            echo "===== IMS ====="
+            grep -RInE \
+              'ims|imsrcs|imsservice|qti.*ims' \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              2>/dev/null | head -400
+
+            echo
+            echo "===== WIFI CALLING / VOWIFI ====="
+            grep -RInE \
+              'vowifi|vo.?wifi|wifi.?calling|iwlan|epdg|wfc' \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              2>/dev/null | head -400
+
+            echo
+            echo "========================================"
+            echo "AUDIT COMPLETE"
+            echo "========================================"
+
+          } 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/08-hardware-audit.txt"
+
+          exit 0
+
+      # ------------------------------------------------------------
+      # V11 — Explicit vendor file preservation audit
+      # ------------------------------------------------------------
+      - name: "V11 • Verify critical vendor payloads are present"
+        shell: bash
+        run: |
+          set -u
+
+          cd "$RUNNER_TEMP/android"
+
+          LOG="$GITHUB_WORKSPACE/ci-diagnostics/vendor/09-critical-vendor-files.txt"
+
+          {
+            echo "=== Critical vendor payload audit ==="
+
+            echo
+            echo "--- Fingerprint candidates ---"
+            find vendor/lge/caymanlm/proprietary/vendor \
+              -type f \
+              \( \
+                -iname '*finger*' -o \
+                -iname '*biometric*' -o \
+                -iname '*fod*' -o \
+                -iname '*fps*' \
+              \) \
+              -print 2>/dev/null | sort | head -200
+
+            echo
+            echo "--- Audio candidates ---"
+            find vendor/lge/caymanlm/proprietary/vendor \
+              -type f \
+              \( \
+                -iname '*audio*' -o \
+                -iname '*mixer*' -o \
+                -iname '*.acdb' \
+              \) \
+              -print 2>/dev/null | sort | head -300
+
+            echo
+            echo "--- RIL / IMS candidates ---"
+            find vendor/lge/caymanlm/proprietary/vendor \
+              -type f \
+              \( \
+                -iname '*ril*' -o \
+                -iname '*ims*' -o \
+                -iname '*radio*' \
+              \) \
+              -print 2>/dev/null | sort | head -300
+
+            echo
+            echo "--- Wi-Fi Calling / IWLAN candidates ---"
+            find vendor/lge/caymanlm/proprietary/vendor \
+              -type f \
+              \( \
+                -iname '*iwlan*' -o \
+                -iname '*epdg*' -o \
+                -iname '*vowifi*' -o \
+                -iname '*wfc*' \
+              \) \
+              -print 2>/dev/null | sort | head -300
+
+            echo
+            echo "--- ACDB files ---"
+            find vendor/lge/caymanlm/proprietary/vendor \
+              -type f -iname '*.acdb' \
+              -print 2>/dev/null | sort
+
+          } 2>&1 | tee "$LOG"
+
+      # ------------------------------------------------------------
+      # V12 — Environment + lunch
+      # ------------------------------------------------------------
+      - name: "V12 • Prepare Android build environment"
+        shell: bash
+        run: |
+          set -o pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          source build/envsetup.sh 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/10-envsetup.log"
+
+          lunch "$TARGET" 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/11-lunch.log"
+
+      # ------------------------------------------------------------
+      # V13 — Product configuration audit
+      # ------------------------------------------------------------
+      - name: "V13 • Audit product vendor configuration"
+        shell: bash
+        run: |
+          set +e
+
+          cd "$RUNNER_TEMP/android"
+
+          {
+            echo "=== TARGET ==="
+            echo "$TARGET"
+
+            echo
+            echo "=== PRODUCT VARIABLES ==="
+            get_build_var PRODUCT_NAME
+            get_build_var TARGET_DEVICE
+            get_build_var TARGET_BUILD_VARIANT
+            get_build_var TARGET_ARCH
+            get_build_var BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
+            get_build_var BOARD_VENDORIMAGE_PARTITION_SIZE
+
+            echo
+            echo "=== DEVICE VENDOR CONFIG ==="
+            grep -RInE \
+              'vendor/lge/caymanlm|caymanlm-vendor' \
+              device/lge/caymanlm \
+              2>/dev/null | head -300
+
+          } 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/12-product-config.txt"
+
+          exit 0
+
+      # ------------------------------------------------------------
+      # V14 — Build vendor.img ONLY
+      # ------------------------------------------------------------
+      - name: "V14 • Build vendor.img ONLY"
+        shell: bash
+        run: |
+          set -o pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          source build/envsetup.sh
+
+          lunch "$TARGET"
+
+          echo "Starting vendorimage build..."
+
+          m vendorimage \
+            -j"$(nproc --all)" \
+            2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/13-vendor-build.log"
+
+      # ------------------------------------------------------------
+      # V15 — Locate output robustly
+      # ------------------------------------------------------------
+      - name: "V15 • Locate vendor.img"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          PRODUCT_OUT="out/target/product/$CODENAME"
+
+          test -d "$PRODUCT_OUT"
+
+          {
+            echo "=== Product output ==="
+            du -sh "$PRODUCT_OUT"
+
+            echo
+            echo "=== vendor images ==="
+            find "$PRODUCT_OUT" \
+              -maxdepth 2 \
+              -type f \
+              \( \
+                -name 'vendor.img' -o \
+                -name 'vendor.img.*' \
+              \) \
+              -exec ls -lh {} \;
+          } | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/14-output-location.txt"
+
+          test -s "$PRODUCT_OUT/vendor.img"
+
+      # ------------------------------------------------------------
+      # V16 — Validate vendor.img
+      # ------------------------------------------------------------
+      - name: "V16 • Validate vendor.img"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          PRODUCT_OUT="out/target/product/$CODENAME"
+          VENDOR_IMG="$PRODUCT_OUT/vendor.img"
+
+          test -s "$VENDOR_IMG"
+
+          {
+            echo "=== vendor.img ==="
+            ls -lh "$VENDOR_IMG"
+
+            echo
+            echo "=== file ==="
+            file "$VENDOR_IMG"
+
+            echo
+            echo "=== sha256 ==="
+            sha256sum "$VENDOR_IMG"
+
+            echo
+            echo "=== size bytes ==="
+            stat -c '%s' "$VENDOR_IMG"
+
+            echo
+            echo "=== filesystem information ==="
+            if command -v dump.erofs >/dev/null 2>&1; then
+              dump.erofs "$VENDOR_IMG" 2>&1 || true
+            fi
+
+            if command -v tune2fs >/dev/null 2>&1; then
+              tune2fs -l "$VENDOR_IMG" 2>&1 || true
+            fi
+
+          } | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/15-vendor-validation.txt"
+
+      # ------------------------------------------------------------
+      # V17 — VINTF / vendor payload audit
+      # ------------------------------------------------------------
+      - name: "V17 • Audit VINTF and critical payloads in vendor.img"
+        shell: bash
+        run: |
+          set +e
+
+          cd "$RUNNER_TEMP/android"
+
+          PRODUCT_OUT="out/target/product/$CODENAME"
+
+          {
+            echo "=== Generated vendor-related files ==="
+
+            find "$PRODUCT_OUT" \
+              -type f \
+              \( \
+                -iname '*manifest*.xml' -o \
+                -iname '*matrix*.xml' \
+              \) \
+              -print | sort
+
+            echo
+            echo "=== Vendor build intermediates ==="
+
+            find "$PRODUCT_OUT/obj/PACKAGING" \
+              -maxdepth 4 \
+              -type f \
+              2>/dev/null | sort | head -500
+
+          } 2>&1 | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/16-vintf-audit.txt"
+
+          exit 0
+
+      # ------------------------------------------------------------
+      # V18 — Compress vendor.img
+      # ------------------------------------------------------------
+      - name: "V18 • Create storage-safe vendor archive"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$RUNNER_TEMP/android"
+
+          PRODUCT_OUT="out/target/product/$CODENAME"
+
+          mkdir -p "$GITHUB_WORKSPACE/vendor-result"
+
+          cp "$PRODUCT_OUT/vendor.img" \
+            "$GITHUB_WORKSPACE/vendor-result/vendor.img"
+
+          cd "$GITHUB_WORKSPACE/vendor-result"
+
+          sha256sum vendor.img | tee vendor.img.sha256
+
+          # pigz is parallel gzip and significantly faster on the runner.
+          tar -I "pigz -9" \
+            -cf vendor.img.tar.gz \
+            vendor.img
+
+          sha256sum vendor.img.tar.gz | tee vendor.img.tar.gz.sha256
+
+          {
+            echo "=== Raw vendor.img ==="
+            ls -lh vendor.img
+
+            echo
+            echo "=== Compressed archive ==="
+            ls -lh vendor.img.tar.gz
+
+            echo
+            echo "=== Bytes ==="
+            stat -c 'vendor.img=%s bytes' vendor.img
+            stat -c 'vendor.img.tar.gz=%s bytes' vendor.img.tar.gz
+          } | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/17-package-size.txt"
+
+      # ------------------------------------------------------------
+      # V19 — Ensure every artifact upload part <= 450 MiB
+      # ------------------------------------------------------------
+      - name: "V19 • Split archive if larger than 450 MiB"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$GITHUB_WORKSPACE/vendor-result"
+
+          rm -f vendor.img.tar.gz.part-* 2>/dev/null || true
+
+          SIZE="$(stat -c '%s' vendor.img.tar.gz)"
+
+          # 450 MiB
+          LIMIT=$((450 * 1024 * 1024))
+
+          if [ "$SIZE" -le "$LIMIT" ]; then
+            cp vendor.img.tar.gz vendor.img.tar.gz.part-00
+          else
+            split \
+              -b "$ARTIFACT_CHUNK_SIZE" \
+              -d \
+              -a 3 \
+              vendor.img.tar.gz \
+              vendor.img.tar.gz.part-
+
+            rm -f vendor.img.tar.gz
+          fi
+
+          {
+            echo "=== Artifact package ==="
+            ls -lh
+
+            echo
+            echo "=== Individual artifact sizes ==="
+
+            find . \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f %s bytes\n' \
+              | sort
+
+            echo
+            echo "=== Maximum allowed individual part ==="
+            echo "$LIMIT bytes"
+
+          } | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/18-artifact-size-check.txt"
+
+          # Hard fail if any artifact part exceeds 450 MiB.
+          while IFS= read -r file; do
+            bytes="$(stat -c '%s' "$file")"
+
+            if [ "$bytes" -gt "$LIMIT" ]; then
+              echo "::error::Artifact part exceeds 450 MiB: $file ($bytes bytes)"
+              exit 1
+            fi
+          done < <(
+            find . \
+              -maxdepth 1 \
+              -type f \
+              -name 'vendor.img.tar.gz.part-*'
+          )
+
+      # ------------------------------------------------------------
+      # V20 — Create extraction instructions
+      # ------------------------------------------------------------
+      - name: "V20 • Create artifact instructions"
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$GITHUB_WORKSPACE/vendor-result"
+
+          cat > README-EXTRACT.txt <<'EOF'
+          LG Velvet G900EMW
+          Android 16 QPR2 / LineageOS 23.2
+          Vendor.img build
+
+          If vendor.img.tar.gz.part-00 is the only archive part:
+              cat vendor.img.tar.gz.part-00 > vendor.img.tar.gz
+
+          If multiple parts exist:
+              cat vendor.img.tar.gz.part-* > vendor.img.tar.gz
+
+          Then extract:
+              tar -xzf vendor.img.tar.gz
+
+          SHA256:
+              sha256sum -c vendor.img.tar.gz.sha256
+
+          The extracted file is:
+              vendor.img
+
+          This workflow intentionally uploads only the vendor result
+          and diagnostics, not the complete Android build tree.
+          EOF
+
+      # ------------------------------------------------------------
+      # V21 — Final diagnostics
+      # ------------------------------------------------------------
+      - name: "V21 • Final storage and result report"
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          {
+            echo "========================================"
+            echo "FINAL VENDOR BUILD REPORT"
+            echo "========================================"
+
+            echo
+            echo "=== Runner disk ==="
+            df -h
+
+            echo
+            echo "=== Result files ==="
+            find "$GITHUB_WORKSPACE/vendor-result" \
+              -maxdepth 1 \
+              -type f \
+              -exec ls -lh {} \; \
+              2>/dev/null
+
+            echo
+            echo "=== Diagnostics ==="
+            du -sh "$GITHUB_WORKSPACE/ci-diagnostics" 2>/dev/null || true
+
+          } | tee \
+            "$GITHUB_WORKSPACE/ci-diagnostics/vendor/99-final-report.txt"
+
+      # ------------------------------------------------------------
+      # V22 — Upload vendor result ALWAYS
+      # ------------------------------------------------------------
+      - name: "V22 • Upload vendor result"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "G900EMW-VENDOR-${{ github.run_id }}"
+          path: |
+            vendor-result/**
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 30
+
+      # ------------------------------------------------------------
+      # V23 — Upload diagnostics ALWAYS
+      # ------------------------------------------------------------
+      - name: "V23 • Upload build logs ALWAYS"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "G900EMW-VENDOR-LOGS-${{ github.run_id }}"
+          path: |
+            ci-diagnostics/vendor/**
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 30
+
+      # ------------------------------------------------------------
+      # V24 — Cleanup only after artifacts have been uploaded
+      # ------------------------------------------------------------
+      - name: "V24 • Cleanup temporary Android source"
+        if: always()
+        shell: bash
+        run: |
+          set +e
+
+          rm -rf "$RUNNER_TEMP/android"
+          rm -rf "$RUNNER_TEMP/bin"
+
+          echo "Temporary Android source removed."
+          df -h
