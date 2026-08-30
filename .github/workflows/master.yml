@@ -343,10 +343,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC (NO --depth) WITH RETRY
+      # V04 - REPO SYNC (NO DEPTH, ROBUST RETRY)
       # ============================================================
 
-      - name: V04 - Verify refs and repo sync (no depth)
+      - name: V04 - Verify refs and repo sync (robust)
         id: v04
         shell: bash
         run: |
@@ -395,7 +395,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC WITH RETRY (3 attempts) - NO --depth
+          # REPO SYNC WITH RETRY (3 attempts) - NO --depth, NO --force-broken
           # ----------------------------------------------
           set +e
 
@@ -412,12 +412,11 @@ jobs:
             repo sync \
               --current-branch \
               --force-sync \
-              --force-broken \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              -j2 \
+              -j4 \
               2>&1 | tee -a "$sync_log"
 
             rc=${PIPESTATUS[0]}
@@ -428,12 +427,27 @@ jobs:
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
-              # اگر چیک آؤٹ کا مسئلہ ہو تو متاثرہ پروجیکٹ کو ڈیلیٹ کریں
-              if grep -q "Cannot checkout" "$sync_log"; then
-                grep "Cannot checkout" "$sync_log" | sed -E 's/.*Cannot checkout ([^:]*):.*/\1/' | while read -r proj; do
-                  echo "Removing problematic project: $proj"
-                  rm -rf "$proj" || true
-                done
+              # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
+              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
+                # نکالیں کہ کون سا پروجیکٹ fail ہوا
+                grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
+                  sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
+                  sort -u | while read -r proj; do
+                    # اگر پروجیکٹ کا نام مل جائے
+                    if [[ -n "$proj" ]]; then
+                      echo "Removing problematic project: $proj"
+                      rm -rf "$proj" || true
+                    fi
+                  done
+                # اگر اوپر سے نہ ملے تو عام طور پر error میں "on project" ہوتا ہے
+                grep -E "on project" "$sync_log" | \
+                  sed -E 's/.*on project ([^ ]*).*/\1/' | \
+                  sort -u | while read -r proj; do
+                    if [[ -n "$proj" ]]; then
+                      echo "Removing problematic project (from 'on project'): $proj"
+                      rm -rf "$proj" || true
+                    fi
+                  done
               fi
 
               if [[ $attempt -lt $max_retries ]]; then
