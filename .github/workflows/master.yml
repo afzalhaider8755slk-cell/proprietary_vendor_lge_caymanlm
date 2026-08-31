@@ -88,6 +88,10 @@ jobs:
           sudo rm -rf /usr/local/share/powershell 2>/dev/null || true
           sudo rm -rf /usr/local/lib/node_modules 2>/dev/null || true
 
+          # GHC / Haskell
+          sudo rm -rf /opt/ghc 2>/dev/null || true
+          sudo rm -rf /usr/share/ghc* 2>/dev/null || true
+
           # Hosted tool cache
           sudo rm -rf /opt/hostedtoolcache 2>/dev/null || true
 
@@ -106,6 +110,9 @@ jobs:
           rm -rf ~/.m2/repository/* 2>/dev/null || true
           rm -rf ~/.cache/pip 2>/dev/null || true
           rm -rf ~/.ccache 2>/dev/null || true
+
+          # Python cache
+          sudo rm -rf /usr/local/lib/python* 2>/dev/null || true
 
           # Temporary files
           sudo rm -rf /tmp/* 2>/dev/null || true
@@ -343,10 +350,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC (NO DEPTH, ROBUST RETRY)
+      # V04 - REPO SYNC WITH DEPTH=1, ROBUST RETRY
       # ============================================================
 
-      - name: V04 - Verify refs and repo sync (robust)
+      - name: V04 - Verify refs and repo sync (with depth)
         id: v04
         shell: bash
         run: |
@@ -395,7 +402,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC WITH RETRY (3 attempts) - NO --depth, NO --force-broken
+          # REPO SYNC WITH RETRY (3 attempts) + --depth=1
           # ----------------------------------------------
           set +e
 
@@ -416,7 +423,8 @@ jobs:
               --no-tags \
               --optimized-fetch \
               --prune \
-              -j4 \
+              --depth=1 \
+              -j2 \
               2>&1 | tee -a "$sync_log"
 
             rc=${PIPESTATUS[0]}
@@ -427,19 +435,37 @@ jobs:
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
+              # اگر depth کی وجہ سے fail ہو تو depth ہٹا کر دوبارہ کوشش کریں
+              if grep -q "no such option: --depth" "$sync_log"; then
+                echo "WARNING: --depth not supported, retrying without --depth"
+                repo sync \
+                  --current-branch \
+                  --force-sync \
+                  --no-clone-bundle \
+                  --no-tags \
+                  --optimized-fetch \
+                  --prune \
+                  -j2 \
+                  2>&1 | tee -a "$sync_log"
+                rc=${PIPESTATUS[0]}
+                if [[ $rc -eq 0 ]]; then
+                  echo "repo_sync_exit=0 (without depth)" | tee -a "$sync_log"
+                  break
+                else
+                  echo "repo_sync_exit=$rc (without depth failed)" | tee -a "$sync_log"
+                fi
+              fi
+
               # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
               if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
-                # نکالیں کہ کون سا پروجیکٹ fail ہوا
                 grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
                   sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
                   sort -u | while read -r proj; do
-                    # اگر پروجیکٹ کا نام مل جائے
                     if [[ -n "$proj" ]]; then
                       echo "Removing problematic project: $proj"
                       rm -rf "$proj" || true
                     fi
                   done
-                # اگر اوپر سے نہ ملے تو عام طور پر error میں "on project" ہوتا ہے
                 grep -E "on project" "$sync_log" | \
                   sed -E 's/.*on project ([^ ]*).*/\1/' | \
                   sort -u | while read -r proj; do
