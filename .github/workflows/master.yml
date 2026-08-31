@@ -197,7 +197,7 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-          # Install latest repo
+          # Install latest repo launcher
           curl -fL --retry 5 --retry-delay 3 \
             https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/repo"
@@ -214,10 +214,10 @@ jobs:
           df -h
 
       # ============================================================
-      # V02 - INITIALIZE ANDROID SOURCE
+      # V02 - INITIALIZE ANDROID SOURCE (WITH STABLE REPO)
       # ============================================================
 
-      - name: V02 - Initialize Android source
+      - name: V02 - Initialize Android source (force stable repo)
         id: v02
         shell: bash
         run: |
@@ -234,16 +234,18 @@ jobs:
 
           cd "$base/android"
 
+          # --repo-branch=stable ensures we get the latest repo which supports sync --depth
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
             --depth=1 \
             --no-clone-bundle \
-            --no-repo-verify
+            --repo-url=https://gerrit.googlesource.com/git-repo \
+            --repo-branch=stable
 
           test -s "$base/android/.repo/manifests/default.xml"
 
-          echo "V02 PASS: repo initialized."
+          echo "V02 PASS: repo initialized with stable repo tool."
 
           echo
           echo "Storage after repo init:"
@@ -350,7 +352,7 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC WITH DEPTH=1, ROBUST RETRY
+      # V04 - REPO SYNC WITH DEPTH=1 (NO FALLBACK TO FULL SYNC)
       # ============================================================
 
       - name: V04 - Verify refs and repo sync (with depth)
@@ -403,6 +405,7 @@ jobs:
 
           # ----------------------------------------------
           # REPO SYNC WITH RETRY (3 attempts) + --depth=1
+          # NO fallback to full sync to avoid disk exhaustion
           # ----------------------------------------------
           set +e
 
@@ -435,25 +438,11 @@ jobs:
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
-              # اگر depth کی وجہ سے fail ہو تو depth ہٹا کر دوبارہ کوشش کریں
+              # اگر --depth سپورٹ نہیں ہے تو اب ہم ریٹرائی نہیں کریں گے، کیونکہ اس سے ڈسک بھر جائے گی
               if grep -q "no such option: --depth" "$sync_log"; then
-                echo "WARNING: --depth not supported, retrying without --depth"
-                repo sync \
-                  --current-branch \
-                  --force-sync \
-                  --no-clone-bundle \
-                  --no-tags \
-                  --optimized-fetch \
-                  --prune \
-                  -j2 \
-                  2>&1 | tee -a "$sync_log"
-                rc=${PIPESTATUS[0]}
-                if [[ $rc -eq 0 ]]; then
-                  echo "repo_sync_exit=0 (without depth)" | tee -a "$sync_log"
-                  break
-                else
-                  echo "repo_sync_exit=$rc (without depth failed)" | tee -a "$sync_log"
-                fi
+                echo "FATAL: --depth not supported. Please check repo version." | tee -a "$sync_log"
+                rc=1
+                break
               fi
 
               # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
