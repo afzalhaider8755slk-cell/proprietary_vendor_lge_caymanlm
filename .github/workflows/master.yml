@@ -214,10 +214,10 @@ jobs:
           df -h
 
       # ============================================================
-      # V02 - INITIALIZE ANDROID SOURCE (WITH STABLE REPO)
+      # V02 - INITIALIZE ANDROID SOURCE & SELFUPDATE REPO
       # ============================================================
 
-      - name: V02 - Initialize Android source (force stable repo)
+      - name: V02 - Initialize Android source and update repo tool
         id: v02
         shell: bash
         run: |
@@ -234,7 +234,7 @@ jobs:
 
           cd "$base/android"
 
-          # --repo-branch=stable ensures we get the latest repo which supports sync --depth
+          # Initialize with stable repo branch
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
@@ -243,9 +243,13 @@ jobs:
             --repo-url=https://gerrit.googlesource.com/git-repo \
             --repo-branch=stable
 
+          # Now selfupdate to get the latest repo that supports sync --depth
+          echo "Running repo selfupdate to ensure latest version..."
+          repo selfupdate
+
           test -s "$base/android/.repo/manifests/default.xml"
 
-          echo "V02 PASS: repo initialized with stable repo tool."
+          echo "V02 PASS: repo initialized and selfupdated to stable version."
 
           echo
           echo "Storage after repo init:"
@@ -352,7 +356,7 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC WITH DEPTH=1 (NO FALLBACK TO FULL SYNC)
+      # V04 - REPO SYNC WITH DEPTH=1 (NOW SUPPORTED)
       # ============================================================
 
       - name: V04 - Verify refs and repo sync (with depth)
@@ -405,7 +409,6 @@ jobs:
 
           # ----------------------------------------------
           # REPO SYNC WITH RETRY (3 attempts) + --depth=1
-          # NO fallback to full sync to avoid disk exhaustion
           # ----------------------------------------------
           set +e
 
@@ -438,9 +441,9 @@ jobs:
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
-              # اگر --depth سپورٹ نہیں ہے تو اب ہم ریٹرائی نہیں کریں گے، کیونکہ اس سے ڈسک بھر جائے گی
+              # اگر --depth سپورٹ نہیں ہے تو یہ اب بھی ممکن ہے، لیکن selfupdate کے بعد یہ نہیں ہونا چاہیے
               if grep -q "no such option: --depth" "$sync_log"; then
-                echo "FATAL: --depth not supported. Please check repo version." | tee -a "$sync_log"
+                echo "FATAL: --depth not supported even after selfupdate. Exiting." | tee -a "$sync_log"
                 rc=1
                 break
               fi
