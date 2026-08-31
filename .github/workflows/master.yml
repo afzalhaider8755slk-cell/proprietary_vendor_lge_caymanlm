@@ -197,7 +197,7 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-          # Install latest repo launcher
+          # Install latest repo launcher (force download)
           curl -fL --retry 5 --retry-delay 3 \
             https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/repo"
@@ -234,16 +234,15 @@ jobs:
 
           cd "$base/android"
 
-          # Initialize with stable repo branch
+          # Initialize with stable repo branch - NO --depth to avoid parser issues
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
-            --depth=1 \
             --no-clone-bundle \
             --repo-url=https://gerrit.googlesource.com/git-repo \
             --repo-branch=stable
 
-          # Now selfupdate to get the latest repo that supports sync --depth
+          # Now selfupdate to get the latest repo (this usually works)
           echo "Running repo selfupdate to ensure latest version..."
           repo selfupdate
 
@@ -356,10 +355,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC WITH DEPTH=1 (NOW SUPPORTED)
+      # V04 - REPO SYNC (NO --depth) + RETRY
       # ============================================================
 
-      - name: V04 - Verify refs and repo sync (with depth)
+      - name: V04 - Verify refs and repo sync (no depth)
         id: v04
         shell: bash
         run: |
@@ -408,7 +407,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC WITH RETRY (3 attempts) + --depth=1
+          # REPO SYNC WITH RETRY (3 attempts) - NO --depth
           # ----------------------------------------------
           set +e
 
@@ -429,7 +428,6 @@ jobs:
               --no-tags \
               --optimized-fetch \
               --prune \
-              --depth=1 \
               -j2 \
               2>&1 | tee -a "$sync_log"
 
@@ -440,13 +438,6 @@ jobs:
               break
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
-
-              # اگر --depth سپورٹ نہیں ہے تو یہ اب بھی ممکن ہے، لیکن selfupdate کے بعد یہ نہیں ہونا چاہیے
-              if grep -q "no such option: --depth" "$sync_log"; then
-                echo "FATAL: --depth not supported even after selfupdate. Exiting." | tee -a "$sync_log"
-                rc=1
-                break
-              fi
 
               # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
               if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
