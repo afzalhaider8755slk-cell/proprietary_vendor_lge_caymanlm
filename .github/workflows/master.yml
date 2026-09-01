@@ -46,28 +46,6 @@ jobs:
           clean: false
 
       # ============================================================
-      # V00.1 - EARLY STORAGE CHECK
-      # ============================================================
-
-      - name: V00.1 - Check runner storage
-        id: storage_before
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          echo "=================================================="
-          echo "LM-G900 STORAGE CHECK - BEFORE CLEANUP"
-          echo "=================================================="
-
-          df -h
-          echo
-          df -ih
-
-          echo
-          echo "Root usage:"
-          sudo du -xhd1 / 2>/dev/null | sort -h || true
-
-      # ============================================================
       # V00.2 - EXTREME CLEANUP (more space)
       # ============================================================
 
@@ -245,7 +223,6 @@ jobs:
             --repo-url=https://gerrit.googlesource.com/git-repo \
             --repo-branch=stable
 
-          # Now selfupdate
           echo "Running repo selfupdate to ensure latest version..."
           repo selfupdate
 
@@ -359,10 +336,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - MINIMAL REPO SYNC (VENDOR + BUILD SYSTEM ONLY)
+      # V04 - MEDIUM REPO SYNC (NO FULL SOURCE, FIXED BUILD PATHS)
       # ============================================================
 
-      - name: V04 - Sync vendor and minimal build system
+      - name: V04 - Sync vendor and medium build system
         id: v04
         shell: bash
         run: |
@@ -412,9 +389,9 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # MINIMAL SYNC - ONLY NECESSARY PROJECTS
-          # NO --depth (because repo tool doesn't support it)
+          # MEDIUM SYNC - ONLY NECESSARY PROJECTS
           # NO FULL SOURCE (to avoid disk space issues)
+          # NOT using --depth (because it fails)
           # ----------------------------------------------
           set +e
 
@@ -422,18 +399,18 @@ jobs:
           attempt=1
           rc=1
 
-          # List of absolute minimum AOSP build dependencies + Vendor repos
-          # This downloads ~10-15GB instead of 60GB+
-          SYNC_PATHS="build build/soong build/blueprint build/kati prebuilts/build-tools prebuilts/clang/host/linux-x86 prebuilts/sdk system/core system/libbase system/libziparchive system/logging hardware/interfaces hardware/libhardware frameworks/native frameworks/av frameworks/base external/libcxx external/libcxxabi external/zlib external/protobuf external/selinux external/llvm external/clang external/rust external/python3 external/sqlite external/openssl external/boringssl external/curl external/libpng external/libjpeg-turbo external/skia external/freetype external/fmtlib external/jsoncpp external/libdrm external/minigbm external/mesa3d"
+          # Corrected list: Removed "build" (invalid project), added build/make, build/soong, etc.
+          # Added core system, prebuilts, and hardware to ensure vendorimage can actually build!
+          SYNC_PATHS="build/make build/soong build/blueprint build/kati build/robotests prebuilts/build-tools prebuilts/clang/host/linux-x86 prebuilts/sdk system/core system/libbase system/libziparchive system/logging hardware/interfaces hardware/libhardware hardware/libhardware_legacy frameworks/native frameworks/av frameworks/base external/libcxx external/libcxxabi external/zlib external/selinux external/protobuf external/openssl external/libpng external/libjpeg-turbo"
 
           while [[ $attempt -le $max_retries ]]; do
             echo
             echo "=================================================="
-            echo "MINIMAL REPO SYNC ATTEMPT $attempt of $max_retries"
+            echo "MEDIUM REPO SYNC ATTEMPT $attempt of $max_retries"
             echo "=================================================="
 
-            # Use timeout to prevent hanging indefinitely (3600 seconds = 1 hour)
-            timeout 3600 repo sync \
+            # Use timeout to prevent hanging indefinitely (4500 seconds = 75 minutes)
+            timeout 4500 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
@@ -454,7 +431,6 @@ jobs:
             else
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
-              # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
               if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
                 grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
                   sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
@@ -492,7 +468,6 @@ jobs:
           df -h
           df -ih
 
-          # If all attempts failed, exit with error
           if [[ $rc -ne 0 ]]; then
             echo "FATAL: repo sync failed after $max_retries attempts." | tee -a "$sync_log"
             exit $rc
@@ -504,7 +479,7 @@ jobs:
             exit 1
           fi
 
-          echo "V04 PASS: minimal repo sync completed successfully."
+          echo "V04 PASS: medium repo sync completed successfully."
 
       # ============================================================
       # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
@@ -892,7 +867,6 @@ jobs:
             exit 1
           fi
 
-          # V08 is now non-blocking, so we check it for informational purposes only
           if [[ "${{ steps.v08.outcome }}" != "success" ]]; then
             echo "VENDOR WARNING: V08 hardware audit had warnings (non-blocking)."
           fi
