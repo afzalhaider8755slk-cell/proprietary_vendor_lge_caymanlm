@@ -205,7 +205,8 @@ jobs:
           chmod +x "$HOME/repo"
           sudo install -m 0755 "$HOME/repo" /usr/local/bin/repo
 
-          git --version
+          # Verify repo path and version
+          which repo
           repo --version
           python3 --version
 
@@ -355,10 +356,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - FULL REPO SYNC (WITH DEPTH=1) + TIMEOUT + RETRY
+      # V04 - FULL REPO SYNC (NO DEPTH) + TIMEOUT + RETRY
       # ============================================================
 
-      - name: V04 - Verify refs and full repo sync (depth 1)
+      - name: V04 - Verify refs and full repo sync (no depth)
         id: v04
         shell: bash
         run: |
@@ -407,7 +408,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # FULL REPO SYNC WITH RETRY + TIMEOUT + --depth=1
+          # FULL REPO SYNC WITH RETRY + TIMEOUT (NO --depth)
           # ----------------------------------------------
           set +e
 
@@ -421,17 +422,15 @@ jobs:
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
             echo "=================================================="
 
-            # Use timeout to prevent hanging indefinitely (3600 seconds = 1 hour)
-            # We use --depth=1 because we installed the latest repo in V01
-            timeout 3600 repo sync \
+            # Use timeout to prevent hanging indefinitely (5400 seconds = 1.5 hours)
+            timeout 5400 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              --depth=1 \
-              -j4 \
+              -j2 \
               2>&1 | tee -a "$sync_log"
 
             rc=${PIPESTATUS[0]}
@@ -443,7 +442,7 @@ jobs:
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
               # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
-              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError|error: cannot" "$sync_log"; then
+              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
                 grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
                   sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
                   sort -u | while read -r proj; do
