@@ -215,10 +215,11 @@ jobs:
 
           cd "$base/android"
 
-          # Initialize with stable repo branch
+          # Initialize with stable repo branch + DEPTH 1
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
+            --depth=1 \
             --no-clone-bundle \
             --repo-url=https://gerrit.googlesource.com/git-repo \
             --repo-branch=stable
@@ -336,10 +337,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - MEDIUM REPO SYNC (NO FULL SOURCE, FIXED BUILD PATHS)
+      # V04 - FULL REPO SYNC (WITH DEPTH=1, AUTO FALLBACK)
       # ============================================================
 
-      - name: V04 - Sync vendor and medium build system
+      - name: V04 - Verify refs and full repo sync
         id: v04
         shell: bash
         run: |
@@ -389,9 +390,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # MEDIUM SYNC - ONLY NECESSARY PROJECTS
-          # NO FULL SOURCE (to avoid disk space issues)
-          # NOT using --depth (because it fails)
+          # FULL REPO SYNC WITH RETRY (Try --depth first)
           # ----------------------------------------------
           set +e
 
@@ -399,31 +398,39 @@ jobs:
           attempt=1
           rc=1
 
-          # Corrected list: Removed "build" (invalid project), added build/make, build/soong, etc.
-          # Added core system, prebuilts, and hardware to ensure vendorimage can actually build!
-          SYNC_PATHS="build/make build/soong build/blueprint build/kati build/robotests prebuilts/build-tools prebuilts/clang/host/linux-x86 prebuilts/sdk system/core system/libbase system/libziparchive system/logging hardware/interfaces hardware/libhardware hardware/libhardware_legacy frameworks/native frameworks/av frameworks/base external/libcxx external/libcxxabi external/zlib external/selinux external/protobuf external/openssl external/libpng external/libjpeg-turbo"
-
           while [[ $attempt -le $max_retries ]]; do
             echo
             echo "=================================================="
-            echo "MEDIUM REPO SYNC ATTEMPT $attempt of $max_retries"
+            echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
             echo "=================================================="
 
-            # Use timeout to prevent hanging indefinitely (4500 seconds = 75 minutes)
-            timeout 4500 repo sync \
+            # Try with --depth=1 first
+            timeout 3600 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              -j2 \
-              $SYNC_PATHS \
-              device/lge/caymanlm \
-              vendor/lge/caymanlm \
-              vendor/lge/sm7250-common 2>&1 | tee -a "$sync_log"
+              --depth=1 \
+              -j4 2>&1 | tee -a "$sync_log"
 
             rc=${PIPESTATUS[0]}
+
+            # If depth fails due to "no such option", fallback to no depth
+            if [[ $rc -ne 0 ]] && grep -q "no such option: --depth" "$sync_log"; then
+              echo "WARN: --depth not supported, falling back to full sync..." | tee -a "$sync_log"
+              timeout 5400 repo sync \
+                --current-branch \
+                --force-sync \
+                --no-clone-bundle \
+                --no-tags \
+                --optimized-fetch \
+                --prune \
+                -j4 2>&1 | tee -a "$sync_log"
+
+              rc=${PIPESTATUS[0]}
+            fi
 
             if [[ $rc -eq 0 ]]; then
               echo "repo_sync_exit=0" | tee -a "$sync_log"
@@ -437,14 +444,6 @@ jobs:
                   sort -u | while read -r proj; do
                     if [[ -n "$proj" ]]; then
                       echo "Removing problematic project: $proj"
-                      rm -rf "$proj" || true
-                    fi
-                  done
-                grep -E "on project" "$sync_log" | \
-                  sed -E 's/.*on project ([^ ]*).*/\1/' | \
-                  sort -u | while read -r proj; do
-                    if [[ -n "$proj" ]]; then
-                      echo "Removing problematic project (from 'on project'): $proj"
                       rm -rf "$proj" || true
                     fi
                   done
@@ -479,7 +478,7 @@ jobs:
             exit 1
           fi
 
-          echo "V04 PASS: medium repo sync completed successfully."
+          echo "V04 PASS: full repo sync completed successfully."
 
       # ============================================================
       # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
