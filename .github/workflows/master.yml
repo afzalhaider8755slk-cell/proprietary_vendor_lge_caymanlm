@@ -1,4 +1,4 @@
-name: LM-G900 Android 16 QPR2 - Vendor Build FIXED v25
+name: LM-G900 Android 16 QPR2 - Vendor Build FIXED
 
 on:
   workflow_dispatch:
@@ -6,14 +6,6 @@ on:
 permissions:
   contents: read
   actions: write
-
-# IMPORTANT:
-# - Full repo source is intentionally kept: NO --depth is used.
-# - The sync is split into network-only and local-only phases.
-# - Transient Git/repo fetch failures are retried by repo itself and by the workflow.
-# - No destructive project deletion is performed on a failed sync.
-# - The workflow cannot guarantee that GitHub infrastructure will never lose a runner,
-#   but it is designed to prevent ordinary/transient repo-sync failures from killing V04.
 
 env:
   MANIFEST_URL: "https://github.com/LineageOS/android.git"
@@ -30,28 +22,22 @@ env:
 
   DIAG_DIR: "ci-diagnostics/vendor"
 
-  # Conservative values are intentional for a large Android source checkout.
-  REPO_JOBS: "1"
-  REPO_NETWORK_JOBS: "1"
-  REPO_CHECKOUT_JOBS: "1"
-  REPO_RETRY_FETCHES: "8"
-  REPO_SYNC_ATTEMPTS: "5"
-  BUILD_JOBS: "2"
-
-  # Full Android checkout + build requires substantially more storage than a normal
-  # GitHub-hosted runner. Keep this as a hard preflight instead of failing after hours.
-  MIN_FREE_GB: "400"
-
 jobs:
+
   vendor:
-    name: LM-G900 Vendor Build - Full Source / Stable Sync
+
+    name: LM-G900 Vendor Build - 75GB Runner
+
     runs-on: ubuntu-24.04
+
     timeout-minutes: 360
 
     steps:
+
       # ============================================================
       # V00 - CHECKOUT
       # ============================================================
+
       - name: V00 - Checkout repository
         id: v00
         uses: actions/checkout@v4
@@ -60,70 +46,64 @@ jobs:
           clean: false
 
       # ============================================================
-      # V00.1 - EARLY STORAGE / MEMORY CHECK
+      # V00.1 - EARLY STORAGE CHECK
       # ============================================================
-      - name: V00.1 - Check runner resources
+
+      - name: V00.1 - Check runner storage
         id: storage_before
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          mkdir -p "$GITHUB_WORKSPACE/$DIAG_DIR" "$GITHUB_WORKSPACE/vendor_out"
+          echo "=================================================="
+          echo "LM-G900 STORAGE CHECK - BEFORE CLEANUP"
+          echo "=================================================="
 
-          echo "=================================================="
-          echo "LM-G900 RUNNER RESOURCE CHECK"
-          echo "=================================================="
-          echo "runner=${RUNNER_NAME}"
-          echo "os=$(uname -a)"
-          echo "cpu=$(nproc)"
-          echo "memory="
-          free -h || true
-          echo
           df -h
           echo
           df -ih
 
-          root_avail_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
-          root_avail_gb="$((root_avail_kb / 1024 / 1024))"
-          echo "root_available_gb=$root_avail_gb"
-          echo "required_minimum_gb=$MIN_FREE_GB"
-
-          {
-            echo "root_available_gb=$root_avail_gb"
-            echo "required_minimum_gb=$MIN_FREE_GB"
-            echo "cpu=$(nproc)"
-            free -m | awk 'NR==2 {print "mem_total_mb=" $2; print "mem_available_mb=" $7}'
-          } > "$GITHUB_WORKSPACE/$DIAG_DIR/00-resource-summary.log"
-
-          if (( root_avail_gb < MIN_FREE_GB )); then
-            echo "FATAL: insufficient free disk for a full Android checkout + build."
-            echo "Available: ${root_avail_gb} GiB; required preflight: ${MIN_FREE_GB} GiB."
-            echo "This is intentionally stopped before repo sync so the runner does not fail hours later."
-            exit 1
-          fi
+          echo
+          echo "Root usage:"
+          sudo du -xhd1 / 2>/dev/null | sort -h || true
 
       # ============================================================
-      # V00.2 - SAFE CLEANUP
+      # V00.2 - EXTREME CLEANUP (more space)
       # ============================================================
-      - name: V00.2 - Free runner storage safely
+
+      - name: V00.2 - Free runner storage (extreme)
         id: cleanup
         shell: bash
         run: |
           set -Eeuo pipefail
 
           echo "=================================================="
-          echo "SAFE RUNNER CLEANUP"
+          echo "EXTREME RUNNER CLEANUP"
           echo "=================================================="
 
-          # Do NOT delete system Python, hosted tool cache, or other runtime files.
-          # Those can destabilize GitHub Actions itself.
+          # Android / SDK
+          sudo rm -rf /usr/local/lib/android 2>/dev/null || true
+          sudo rm -rf /usr/local/.ghcup 2>/dev/null || true
+          sudo rm -rf /usr/share/dotnet 2>/dev/null || true
+          sudo rm -rf /usr/local/share/powershell 2>/dev/null || true
+          sudo rm -rf /usr/local/lib/node_modules 2>/dev/null || true
 
+          # GHC / Haskell
+          sudo rm -rf /opt/ghc 2>/dev/null || true
+          sudo rm -rf /usr/share/ghc* 2>/dev/null || true
+
+          # Hosted tool cache
+          sudo rm -rf /opt/hostedtoolcache 2>/dev/null || true
+
+          # APT cache
           sudo apt-get clean || true
           sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
+          # Docker
           docker system prune -af 2>/dev/null || true
           docker builder prune -af 2>/dev/null || true
 
+          # User caches
           rm -rf ~/.cache/* 2>/dev/null || true
           rm -rf ~/.gradle/caches/* 2>/dev/null || true
           rm -rf ~/.npm/_cacache 2>/dev/null || true
@@ -131,22 +111,29 @@ jobs:
           rm -rf ~/.cache/pip 2>/dev/null || true
           rm -rf ~/.ccache 2>/dev/null || true
 
-          sudo find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-          sudo find /var/tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+          # Python cache
+          sudo rm -rf /usr/local/lib/python* 2>/dev/null || true
+
+          # Temporary files
+          sudo rm -rf /tmp/* 2>/dev/null || true
+          sudo rm -rf /var/tmp/* 2>/dev/null || true
 
           sync
 
+          echo
           echo "=================================================="
-          echo "STORAGE AFTER SAFE CLEANUP"
+          echo "STORAGE AFTER CLEANUP"
           echo "=================================================="
+
           df -h
+          echo
           df -ih
 
       # ============================================================
       # V00.3 - CREATE DIAGNOSTICS
       # ============================================================
+
       - name: V00.3 - Create diagnostics
-        id: diagnostics
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -156,7 +143,7 @@ jobs:
             "$GITHUB_WORKSPACE/vendor_out"
 
           {
-            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED v25"
+            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED"
             echo "run_id=$GITHUB_RUN_ID"
             echo "sha=$GITHUB_SHA"
             echo "model=$MODEL"
@@ -168,8 +155,9 @@ jobs:
           } | tee "$GITHUB_WORKSPACE/$DIAG_DIR/00-run.log"
 
       # ============================================================
-      # V01 - DEPENDENCIES
+      # V01 - INSTALL DEPENDENCIES + UPDATE REPO
       # ============================================================
+
       - name: V01 - Install build dependencies and update repo
         id: v01
         shell: bash
@@ -179,7 +167,10 @@ jobs:
           log="$GITHUB_WORKSPACE/$DIAG_DIR/01-dependencies.log"
           exec > >(tee -a "$log") 2>&1
 
+          echo "Installing required packages..."
+
           sudo apt-get update
+
           sudo apt-get install -y \
             git-core \
             gnupg \
@@ -201,16 +192,16 @@ jobs:
             lz4 \
             liblz4-tool \
             libxml2-utils \
-            xsltproc \
-            fontconfig
+            xsltproc
 
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-          # Download repo launcher and verify that it is executable.
-          curl -fL --retry 8 --retry-all-errors --retry-delay 3 \
+          # Install latest repo launcher (force download)
+          curl -fL --retry 5 --retry-delay 3 \
             https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/repo"
+
           chmod +x "$HOME/repo"
           sudo install -m 0755 "$HOME/repo" /usr/local/bin/repo
 
@@ -218,12 +209,14 @@ jobs:
           repo --version
           python3 --version
 
+          echo
           echo "Storage after dependencies:"
           df -h
 
       # ============================================================
-      # V02 - INIT AND REPO TOOL
+      # V02 - INITIALIZE ANDROID SOURCE & SELFUPDATE REPO
       # ============================================================
+
       - name: V02 - Initialize Android source and update repo tool
         id: v02
         shell: bash
@@ -232,12 +225,16 @@ jobs:
 
           base="$GITHUB_WORKSPACE"
           log="$base/$DIAG_DIR/02-repo-init.log"
+
           exec > >(tee -a "$log") 2>&1
 
           rm -rf "$base/android"
+
           mkdir -p "$base/android"
+
           cd "$base/android"
 
+          # Initialize with stable repo branch - NO --depth to avoid parser issues
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
@@ -245,18 +242,22 @@ jobs:
             --repo-url=https://gerrit.googlesource.com/git-repo \
             --repo-branch=stable
 
-          echo "Running repo selfupdate..."
+          # Now selfupdate to get the latest repo
+          echo "Running repo selfupdate to ensure latest version..."
           repo selfupdate
 
           test -s "$base/android/.repo/manifests/default.xml"
-          repo version
 
-          echo "V02 PASS: repo initialized and selfupdated."
+          echo "V02 PASS: repo initialized and selfupdated to stable version."
+
+          echo
+          echo "Storage after repo init:"
           df -h
 
       # ============================================================
       # V03 - REAL LM-G900 REPOSITORIES
       # ============================================================
+
       - name: V03 - Resolve REAL LM-G900 vendor repositories
         id: v03
         shell: bash
@@ -265,9 +266,11 @@ jobs:
 
           base="$GITHUB_WORKSPACE"
           log="$base/$DIAG_DIR/03-vendor-manifest.log"
+
           exec > >(tee -a "$log") 2>&1
 
           cd "$base/android"
+
           mkdir -p .repo/local_manifests
 
           DEVICE_URL="https://github.com/${VENDOR_ORG}/${DEVICE_REPO}.git"
@@ -275,9 +278,10 @@ jobs:
           COMMON_URL="https://github.com/${VENDOR_ORG}/${COMMON_VENDOR_REPO}.git"
 
           echo "=== repository existence ==="
-          git ls-remote --exit-code --heads "$DEVICE_URL" >/dev/null
-          git ls-remote --exit-code --heads "$VENDOR_URL" >/dev/null
-          git ls-remote --exit-code --heads "$COMMON_URL" >/dev/null
+
+          git ls-remote --heads "$DEVICE_URL" >/dev/null
+          git ls-remote --heads "$VENDOR_URL" >/dev/null
+          git ls-remote --heads "$COMMON_URL" >/dev/null
 
           resolve_branch() {
             local url="$1"
@@ -289,7 +293,12 @@ jobs:
             elif git ls-remote --exit-code --heads "$url" "lineage-22.2" >/dev/null 2>&1; then
               result="lineage-22.2"
             else
-              result="$(git ls-remote --symref "$url" HEAD | awk '/^ref:/ {sub("refs/heads/","",$2); print $2; exit}')"
+              result="$(git ls-remote --symref "$url" HEAD |
+                awk '/^ref:/ {
+                  sub("refs/heads/","",$2);
+                  print $2;
+                  exit
+                }')"
             fi
 
             test -n "$result"
@@ -310,251 +319,281 @@ jobs:
             echo "COMMON_BRANCH=$COMMON_BRANCH"
           } >> "$GITHUB_ENV"
 
-          cat > .repo/local_manifests/g900lm.xml <<EOF2
+          cat > .repo/local_manifests/g900lm.xml <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
-            <remote name="g900github" fetch="https://github.com/" />
-            <project name="${VENDOR_ORG}/${DEVICE_REPO}" path="device/lge/caymanlm" remote="g900github" revision="${DEVICE_BRANCH}" />
-            <project name="${VENDOR_ORG}/${VENDOR_REPO}" path="vendor/lge/caymanlm" remote="g900github" revision="${VENDOR_BRANCH}" />
-            <project name="${VENDOR_ORG}/${COMMON_VENDOR_REPO}" path="vendor/lge/sm7250-common" remote="g900github" revision="${COMMON_BRANCH}" />
+
+            <remote
+              name="g900github"
+              fetch="https://github.com/" />
+
+            <project
+              name="${VENDOR_ORG}/${DEVICE_REPO}"
+              path="device/lge/caymanlm"
+              remote="g900github"
+              revision="${DEVICE_BRANCH}" />
+
+            <project
+              name="${VENDOR_ORG}/${VENDOR_REPO}"
+              path="vendor/lge/caymanlm"
+              remote="g900github"
+              revision="${VENDOR_BRANCH}" />
+
+            <project
+              name="${VENDOR_ORG}/${COMMON_VENDOR_REPO}"
+              path="vendor/lge/sm7250-common"
+              remote="g900github"
+              revision="${COMMON_BRANCH}" />
+
           </manifest>
-          EOF2
+          EOF
 
           cat .repo/local_manifests/g900lm.xml
+
           repo manifest >/dev/null
+
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - ROBUST FULL-SOURCE REPO SYNC
+      # V04 - REPO SYNC (ONLY 3 PROJECTS) + TIMEOUT + RETRY
       # ============================================================
-      - name: V04 - Full source repo sync with network recovery
+
+      - name: V04 - Verify refs and repo sync (specific projects only)
         id: v04
         shell: bash
         run: |
           set -Eeuo pipefail
 
           base="$GITHUB_WORKSPACE"
-          ref_log="$base/$DIAG_DIR/04-ref-check.log"
+          log="$base/$DIAG_DIR/04-ref-check.log"
           sync_log="$base/$DIAG_DIR/04-repo-sync.log"
 
-          exec > >(tee -a "$ref_log") 2>&1
+          exec > >(tee -a "$log") 2>&1
+
+          failures=0
 
           check_ref() {
-            local repo_name="$1"
+            local repo="$1"
             local branch="$2"
-            local url="https://github.com/${VENDOR_ORG}/${repo_name}.git"
+            local url="https://github.com/${VENDOR_ORG}/${repo}.git"
+
             echo "CHECK $url @ refs/heads/$branch"
-            git ls-remote --exit-code --heads "$url" "$branch"
-            echo "PASS $repo_name @ $branch"
+
+            if git ls-remote --exit-code --heads "$url" "$branch"; then
+              echo "PASS $repo @ $branch"
+            else
+              echo "FAIL $repo @ $branch"
+              failures=$((failures + 1))
+            fi
           }
 
           check_ref "$DEVICE_REPO" "$DEVICE_BRANCH"
           check_ref "$VENDOR_REPO" "$VENDOR_BRANCH"
           check_ref "$COMMON_VENDOR_REPO" "$COMMON_BRANCH"
 
+          if [[ "$failures" -ne 0 ]]; then
+            echo "V04 STOP: invalid vendor ref(s)."
+            exit 1
+          fi
+
           cd "$base/android"
 
-          # Stable Git transport settings for long HTTPS fetches.
-          git config --global protocol.version 2
-          git config --global http.version HTTP/1.1
-          git config --global http.lowSpeedLimit 1
-          git config --global http.lowSpeedTime 120
-          git config --global fetch.parallel 1
-
+          echo
           echo "=================================================="
-          echo "V04 FULL-SOURCE SYNC"
-          echo "NO --depth / NO shallow checkout"
-          echo "network jobs=$REPO_NETWORK_JOBS"
-          echo "checkout jobs=$REPO_CHECKOUT_JOBS"
-          echo "repo retry-fetches=$REPO_RETRY_FETCHES"
-          echo "outer attempts=$REPO_SYNC_ATTEMPTS"
+          echo "STORAGE BEFORE REPO SYNC"
           echo "=================================================="
 
           df -h
           df -ih
 
-          : > "$sync_log"
+          # ----------------------------------------------
+          # REPO SYNC ONLY SPECIFIC PROJECTS WITH TIMEOUT
+          # ----------------------------------------------
+          set +e
 
-          # Phase A: NETWORK ONLY.
-          # This isolates all Git/network activity from checkout work.
-          # repo itself supports retry-fetches; the outer loop handles a failed
-          # invocation and resumes from already fetched objects.
+          max_retries=3
           attempt=1
-          network_rc=1
+          rc=1
 
-          while (( attempt <= REPO_SYNC_ATTEMPTS )); do
-            echo "==================================================" | tee -a "$sync_log"
-            echo "NETWORK SYNC ATTEMPT $attempt/$REPO_SYNC_ATTEMPTS" | tee -a "$sync_log"
-            echo "time=$(date -u +%FT%TZ)" | tee -a "$sync_log"
-            echo "==================================================" | tee -a "$sync_log"
+          while [[ $attempt -le $max_retries ]]; do
+            echo
+            echo "=================================================="
+            echo "REPO SYNC ATTEMPT $attempt of $max_retries"
+            echo "=================================================="
 
-            set +e
-            repo sync \
-              --network-only \
+            # Use timeout to prevent hanging indefinitely (1200 seconds = 20 minutes)
+            timeout 1200 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              --fail-fast \
-              --retry-fetches="$REPO_RETRY_FETCHES" \
-              --jobs="$REPO_JOBS" \
-              --jobs-network="$REPO_NETWORK_JOBS" \
-              --jobs-checkout="$REPO_CHECKOUT_JOBS" \
-              --no-interleaved \
+              -j2 \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              vendor/lge/sm7250-common \
               2>&1 | tee -a "$sync_log"
-            network_rc=${PIPESTATUS[0]}
-            set -e
 
-            echo "network_sync_exit=$network_rc" | tee -a "$sync_log"
+            rc=${PIPESTATUS[0]}
 
-            if (( network_rc == 0 )); then
-              echo "NETWORK PHASE PASS" | tee -a "$sync_log"
+            if [[ $rc -eq 0 ]]; then
+              echo "repo_sync_exit=0" | tee -a "$sync_log"
               break
-            fi
+            else
+              echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
-            if (( attempt < REPO_SYNC_ATTEMPTS )); then
-              backoff=$((15 * attempt))
-              echo "Transient/persistent sync error. Waiting ${backoff}s; existing objects will be reused." | tee -a "$sync_log"
-              sleep "$backoff"
+              # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
+              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
+                grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
+                  sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
+                  sort -u | while read -r proj; do
+                    if [[ -n "$proj" ]]; then
+                      echo "Removing problematic project: $proj"
+                      rm -rf "$proj" || true
+                    fi
+                  done
+                grep -E "on project" "$sync_log" | \
+                  sed -E 's/.*on project ([^ ]*).*/\1/' | \
+                  sort -u | while read -r proj; do
+                    if [[ -n "$proj" ]]; then
+                      echo "Removing problematic project (from 'on project'): $proj"
+                      rm -rf "$proj" || true
+                    fi
+                  done
+              fi
+
+              if [[ $attempt -lt $max_retries ]]; then
+                echo "Waiting 15 seconds before retry..."
+                sleep 15
+              fi
+              ((attempt++))
             fi
-            attempt=$((attempt + 1))
           done
 
-          if (( network_rc != 0 )); then
-            echo "FATAL: network-only repo sync failed after $REPO_SYNC_ATTEMPTS attempts." | tee -a "$sync_log"
-            exit "$network_rc"
+          set -e
+
+          echo
+          echo "=================================================="
+          echo "STORAGE AFTER REPO SYNC"
+          echo "=================================================="
+
+          df -h
+          df -ih
+
+          # If all attempts failed, exit with error
+          if [[ $rc -ne 0 ]]; then
+            echo "FATAL: repo sync failed after $max_retries attempts." | tee -a "$sync_log"
+            exit $rc
           fi
 
-          echo "==================================================" | tee -a "$sync_log"
-          echo "PHASE B: LOCAL CHECKOUT" | tee -a "$sync_log"
-          echo "==================================================" | tee -a "$sync_log"
-
-          # Phase B: no network. If this fails, it is a local checkout problem,
-          # not a runner/network problem.
-          repo sync \
-            --local-only \
-            --current-branch \
-            --force-sync \
-            --no-tags \
-            --prune \
-            --jobs="$REPO_JOBS" \
-            --jobs-checkout="$REPO_CHECKOUT_JOBS" \
-            --no-interleaved \
-            2>&1 | tee -a "$sync_log"
-
-          local_rc=${PIPESTATUS[0]}
-          echo "local_sync_exit=$local_rc" | tee -a "$sync_log"
-
-          if (( local_rc != 0 )); then
-            echo "FATAL: local checkout phase failed." | tee -a "$sync_log"
-            exit "$local_rc"
-          fi
-
-          echo "==================================================" | tee -a "$sync_log"
-          echo "V04 POST-SYNC INTEGRITY" | tee -a "$sync_log"
-          echo "==================================================" | tee -a "$sync_log"
-
-          repo status --short || true
-          repo list -p | tee "$base/$DIAG_DIR/04-synced-projects.txt"
-          repo manifest -r > "$base/$DIAG_DIR/04-pinned-manifest.xml"
-
-          echo "STORAGE AFTER REPO SYNC" | tee -a "$sync_log"
-          df -h | tee -a "$sync_log"
-          df -ih | tee -a "$sync_log"
-
-          echo "V04 PASS: full source repo sync and local checkout completed."
+          echo "V04 PASS: repo sync completed successfully."
 
       # ============================================================
       # V05 - VERIFY SYNCED SOURCE
       # ============================================================
+
       - name: V05 - Verify synced vendor source
         id: v05
-        if: ${{ steps.v04.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
           cd "$GITHUB_WORKSPACE/android"
+
           log="$GITHUB_WORKSPACE/$DIAG_DIR/05-source-verification.log"
+
           exec > >(tee -a "$log") 2>&1
 
           echo "=== REQUIRED PROJECTS ==="
-          repo list | grep -E 'device/lge/caymanlm|vendor/lge/caymanlm|vendor/lge/sm7250-common'
 
-          test -d device/lge/caymanlm
-          test -d vendor/lge/caymanlm
-          test -d vendor/lge/sm7250-common
+          repo list | grep -E \
+            'device/lge/caymanlm|vendor/lge/caymanlm|vendor/lge/sm7250-common'
 
+          echo
           echo "=== PINNED MANIFEST ==="
-          repo manifest -r
 
-          echo "V05 PASS"
+          repo manifest -r
 
       # ============================================================
       # V06 - LM-G900 IDENTITY
       # ============================================================
+
       - name: V06 - Verify LM-G900 identity
         id: v06
-        if: ${{ steps.v05.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
           cd "$GITHUB_WORKSPACE/android"
+
           log="$GITHUB_WORKSPACE/$DIAG_DIR/06-model-identity.log"
+
           exec > >(tee -a "$log") 2>&1
 
           echo "MODEL=$MODEL"
           echo "CODENAME=$DEVICE_CODENAME"
           echo "PRODUCT=$PRODUCT"
 
-          grep -RniE 'LM-G900|caymanlm' \
+          grep -RniE \
+            'LM-G900|caymanlm' \
             device/lge/caymanlm \
             vendor/lge/caymanlm \
             vendor/lge/sm7250-common \
             2>/dev/null | head -300 || true
 
-          echo "V06 PASS"
-
       # ============================================================
       # V07 - BUILD ENVIRONMENT
       # ============================================================
+
       - name: V07 - Prepare vendor build environment
         id: v07
-        if: ${{ steps.v06.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
           cd "$GITHUB_WORKSPACE/android"
+
           log="$GITHUB_WORKSPACE/$DIAG_DIR/07-product-config.log"
+
           exec > >(tee -a "$log") 2>&1
 
           source build/envsetup.sh
+
           lunch "$PRODUCT"
 
           echo "PRODUCT_DEVICE=$(get_build_var PRODUCT_DEVICE)"
           echo "TARGET_PRODUCT=$(get_build_var TARGET_PRODUCT)"
           echo "TARGET_BUILD_VARIANT=$(get_build_var TARGET_BUILD_VARIANT)"
-          echo "V07 PASS"
 
       # ============================================================
       # V08 - HARDWARE AUDIT
       # ============================================================
+
       - name: V08 - Mandatory hardware integration audit
         id: v08
-        if: ${{ steps.v07.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
           cd "$GITHUB_WORKSPACE/android"
+
           log="$GITHUB_WORKSPACE/$DIAG_DIR/08-hardware-audit.log"
+
           : > "$log"
 
           audit() {
             local label="$1"
             local pattern="$2"
+
             shift 2
+
             echo "=== $label ===" | tee -a "$log"
+
             if grep -RniE "$pattern" "$@" >> "$log" 2>&1; then
               echo "PASS: $label" | tee -a "$log"
             else
@@ -563,48 +602,87 @@ jobs:
             fi
           }
 
-          audit "Fingerprint" 'fingerprint|fpc|goodix|biometric' \
-            device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
-          audit "Vibration / haptics" 'vibrator|haptics|ff-memless|timed_output' \
-            device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
-          audit "Dual-SIM / DSDS" 'dual.?sim|dsds|simslot|sim.?slot|multisim' \
-            device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
-          audit "Audio" 'mixer_paths|audio_policy|audio_hw|primary\.sm|tinyalsa|snd' \
-            device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
-          audit "Wi-Fi Calling / VoWiFi / IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' \
-            device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
+          audit \
+            "Fingerprint" \
+            'fingerprint|fpc|goodix|biometric' \
+            device/lge/caymanlm \
+            vendor/lge/caymanlm \
+            vendor/lge/sm7250-common
 
-          echo "V08 PASS"
+          audit \
+            "Vibration / haptics" \
+            'vibrator|haptics|ff-memless|timed_output' \
+            device/lge/caymanlm \
+            vendor/lge/caymanlm \
+            vendor/lge/sm7250-common
+
+          audit \
+            "Dual-SIM / DSDS" \
+            'dual.?sim|dsds|simslot|sim.?slot|multisim' \
+            device/lge/caymanlm \
+            vendor/lge/caymanlm \
+            vendor/lge/sm7250-common
+
+          audit \
+            "Audio" \
+            'mixer_paths|audio_policy|audio_hw|primary\.sm|tinyalsa|snd' \
+            device/lge/caymanlm \
+            vendor/lge/caymanlm \
+            vendor/lge/sm7250-common
+
+          audit \
+            "Wi-Fi Calling / VoWiFi / IMS" \
+            'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' \
+            device/lge/caymanlm \
+            vendor/lge/caymanlm \
+            vendor/lge/sm7250-common
 
       # ============================================================
       # V09 - BUILD VENDOR.IMG ONLY
       # ============================================================
+
       - name: V09 - Build vendor.img ONLY
         id: v09
-        if: ${{ steps.v08.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
           cd "$GITHUB_WORKSPACE/android"
+
           log="$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-build.log"
+
           exec > >(tee -a "$log") 2>&1
 
           source build/envsetup.sh
           lunch "$PRODUCT"
 
+          echo
+          echo "=================================================="
           echo "STORAGE BEFORE VENDOR BUILD"
+          echo "=================================================="
+
           df -h
           df -ih
 
           set +e
-          m -j"$BUILD_JOBS" vendorimage 2>&1 | tee -a "$log"
+
+          mka vendorimage 2>&1
+
           rc=${PIPESTATUS[0]}
+
           set -e
 
           echo "vendorimage_exit=$rc"
-          echo "$rc" > "$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-exit-code.txt"
 
+          echo "$rc" \
+            > "$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-exit-code.txt"
+
+          echo
+          echo "=================================================="
           echo "STORAGE AFTER VENDOR BUILD"
+          echo "=================================================="
+
           df -h
           df -ih
 
@@ -613,54 +691,72 @@ jobs:
       # ============================================================
       # V10 - VERIFY VENDOR IMAGE + VINTF
       # ============================================================
+
       - name: V10 - Verify vendor image and VINTF
         id: v10
-        if: ${{ steps.v09.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
           cd "$GITHUB_WORKSPACE/android"
+
           log="$GITHUB_WORKSPACE/$DIAG_DIR/10-vendor-verification.log"
+
           exec > >(tee -a "$log") 2>&1
 
           out="out/target/product/$DEVICE_CODENAME"
 
           echo "=== VENDOR IMAGES ==="
-          find "$out" -maxdepth 1 -type f -name 'vendor*.img' -printf '%p %s bytes\n' 2>/dev/null
 
-          vendor_count="$(find "$out" -maxdepth 1 -type f -name 'vendor*.img' | wc -l)"
-          if (( vendor_count == 0 )); then
-            echo "FATAL: no vendor*.img was produced."
-            exit 1
-          fi
+          find "$out" \
+            -maxdepth 1 \
+            -type f \
+            -name 'vendor*.img' \
+            -printf '%p %s bytes\n' \
+            2>/dev/null || true
 
+          echo
           echo "=== VINTF ==="
-          find "$out/vendor/etc/vintf" -type f -print 2>/dev/null | sort || true
 
+          find "$out/vendor/etc/vintf" \
+            -type f \
+            -print \
+            2>/dev/null | sort || true
+
+          echo
           echo "=== REQUIRED FEATURE PAYLOAD SCAN ==="
-          grep -RniE 'fingerprint|vibrator|haptics|dual.?sim|dsds|mixer_paths|audio_policy|ims|iwlan|vowifi|wifi.?calling' \
-            "$out/vendor" 2>/dev/null | head -500 || true
 
-          echo "V10 PASS"
+          grep -RniE \
+            'fingerprint|vibrator|haptics|dual.?sim|dsds|mixer_paths|audio_policy|ims|iwlan|vowifi|wifi.?calling' \
+            "$out/vendor" \
+            2>/dev/null | head -500 || true
 
       # ============================================================
-      # V11 - ALWAYS COLLECT DIAGNOSTICS
+      # V11 - ALWAYS COLLECT DIAGNOSTICS + ERROR.TXT
       # ============================================================
+
       - name: V11 - ALWAYS collect diagnostics
         id: v11
         if: ${{ always() }}
         shell: bash
         run: |
           set +e
+
           cd "$GITHUB_WORKSPACE"
 
-          mkdir -p "$DIAG_DIR" vendor_out
+          mkdir -p "$DIAG_DIR"
+          mkdir -p vendor_out
+
+          echo "=================================================="
+          echo "FINAL STORAGE STATUS"
+          echo "=================================================="
 
           df -h > "$DIAG_DIR/98-final-disk.log" 2>&1 || true
           df -ih >> "$DIAG_DIR/98-final-disk.log" 2>&1 || true
 
           {
-            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED v25"
+            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED"
             echo "run_id=$GITHUB_RUN_ID"
             echo "sha=$GITHUB_SHA"
             echo "timestamp=$(date -u +%FT%TZ)"
@@ -678,42 +774,76 @@ jobs:
             echo "V09=${{ steps.v09.outcome }}"
             echo "V10=${{ steps.v10.outcome }}"
             echo
-            echo "=== FAILURE SUMMARY ==="
-            grep -RniE 'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback|lost communication|runner' \
-              "$DIAG_DIR" 2>/dev/null | tail -5000 || true
+            echo "=== ERROR / FAILURE SUMMARY (full context) ==="
+
+            grep -RniE \
+              'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback' \
+              "$DIAG_DIR" \
+              2>/dev/null | tail -5000 || true
+
           } > "$DIAG_DIR/99-ERROR-SUMMARY.log"
 
+          # ------------------------------------------------------------
+          # DEDICATED error.txt (ONLY ERROR LINES)
+          # ------------------------------------------------------------
           {
             echo "========== ERROR LOG (extracted) =========="
             echo "Generated: $(date -u +%FT%TZ)"
             echo
-            grep -RniE 'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback|lost communication|runner' \
-              "$DIAG_DIR" 2>/dev/null | head -2000
+            grep -RniE \
+              'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback' \
+              "$DIAG_DIR" \
+              2>/dev/null | head -2000
           } > "$DIAG_DIR/error.txt"
 
+          echo "Created $DIAG_DIR/error.txt"
+
+          # Copy any vendor image if exists
           out="android/out/target/product/$DEVICE_CODENAME"
-          find "$out" -maxdepth 1 -type f -name 'vendor*.img' -exec cp -v {} vendor_out/ \; 2>/dev/null || true
+
+          find "$out" \
+            -maxdepth 1 \
+            -type f \
+            -name 'vendor*.img' \
+            -exec cp -v {} vendor_out/ \; \
+            2>/dev/null || true
 
           {
-            echo "MANDATORY ERROR LOG:"
+            echo "MANDATORY ERROR LOG (short version):"
             echo "$DIAG_DIR/error.txt"
             echo
             echo "=== DIAGNOSTIC FILES ==="
-            find "$DIAG_DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' 2>/dev/null | sort
+
+            find "$DIAG_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f %s bytes\n' \
+              2>/dev/null | sort
+
             echo
             echo "=== VENDOR OUTPUT ==="
-            find vendor_out -maxdepth 1 -type f -printf '%f %s bytes\n' 2>/dev/null | sort
+
+            find vendor_out \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f %s bytes\n' \
+              2>/dev/null | sort
+
           } > vendor_out/ARTIFACT-LIST.txt
 
-          tar -czf "vendor_out/LM-G900-VENDOR-DIAGNOSTICS-${GITHUB_RUN_ID}.tar.gz" \
-            "$DIAG_DIR" 2>/dev/null || true
+          # Compress diagnostics
+          tar -czf \
+            "vendor_out/LM-G900-VENDOR-DIAGNOSTICS-${GITHUB_RUN_ID}.tar.gz" \
+            "$DIAG_DIR" \
+            2>/dev/null || true
 
       # ============================================================
       # V12 - UPLOAD ARTIFACTS ALWAYS
       # ============================================================
+
       - name: V12 - Upload vendor diagnostics ALWAYS
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: LM-G900-VENDOR-${{ github.run_id }}
           path: |
@@ -726,6 +856,7 @@ jobs:
       # ============================================================
       # FINAL STATUS
       # ============================================================
+
       - name: FINAL - Return vendor status
         if: ${{ always() }}
         shell: bash
@@ -736,22 +867,22 @@ jobs:
             echo "VENDOR FAILURE: V03 repository resolution/manifest failed."
             exit 1
           fi
+
           if [[ "${{ steps.v04.outcome }}" != "success" ]]; then
-            echo "VENDOR FAILURE: V04 full-source repository sync failed."
+            echo "VENDOR FAILURE: V04 repository/ref sync failed."
             exit 1
           fi
-          if [[ "${{ steps.v05.outcome }}" != "success" ]]; then
-            echo "VENDOR FAILURE: V05 source verification failed."
-            exit 1
-          fi
+
           if [[ "${{ steps.v08.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: mandatory hardware audit failed."
             exit 1
           fi
+
           if [[ "${{ steps.v09.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: vendorimage build failed."
             exit 1
           fi
+
           if [[ "${{ steps.v10.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: vendor verification failed."
             exit 1
@@ -759,5 +890,5 @@ jobs:
 
           echo "=================================================="
           echo "VENDOR SUCCESS"
-          echo "LM-G900 full-source vendor-only workflow completed."
+          echo "LM-G900 vendor-only workflow completed."
           echo "=================================================="
