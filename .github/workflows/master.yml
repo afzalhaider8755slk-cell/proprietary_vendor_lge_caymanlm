@@ -234,7 +234,7 @@ jobs:
 
           cd "$base/android"
 
-          # Initialize with stable repo branch
+          # Initialize with stable repo branch - NO --depth to avoid parser issues
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
@@ -355,10 +355,10 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - REPO SYNC (ONLY 3 PROJECTS) + TIMEOUT + RETRY
+      # V04 - FULL REPO SYNC (WITH DEPTH=1) + TIMEOUT + RETRY
       # ============================================================
 
-      - name: V04 - Verify refs and repo sync (specific projects only)
+      - name: V04 - Verify refs and full repo sync (depth 1)
         id: v04
         shell: bash
         run: |
@@ -407,7 +407,7 @@ jobs:
           df -ih
 
           # ----------------------------------------------
-          # REPO SYNC ONLY SPECIFIC PROJECTS WITH TIMEOUT
+          # FULL REPO SYNC WITH RETRY + TIMEOUT + --depth=1
           # ----------------------------------------------
           set +e
 
@@ -418,21 +418,20 @@ jobs:
           while [[ $attempt -le $max_retries ]]; do
             echo
             echo "=================================================="
-            echo "REPO SYNC ATTEMPT $attempt of $max_retries"
+            echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
             echo "=================================================="
 
-            # Use timeout to prevent hanging indefinitely (1200 seconds = 20 minutes)
-            timeout 1200 repo sync \
+            # Use timeout to prevent hanging indefinitely (3600 seconds = 1 hour)
+            # We use --depth=1 because we installed the latest repo in V01
+            timeout 3600 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              -j2 \
-              device/lge/caymanlm \
-              vendor/lge/caymanlm \
-              vendor/lge/sm7250-common \
+              --depth=1 \
+              -j4 \
               2>&1 | tee -a "$sync_log"
 
             rc=${PIPESTATUS[0]}
@@ -444,7 +443,7 @@ jobs:
               echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
               # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
-              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
+              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError|error: cannot" "$sync_log"; then
                 grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
                   sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
                   sort -u | while read -r proj; do
@@ -487,7 +486,13 @@ jobs:
             exit $rc
           fi
 
-          echo "V04 PASS: repo sync completed successfully."
+          # Ensure build environment exists!
+          if [[ ! -f "$base/android/build/envsetup.sh" ]]; then
+            echo "FATAL: build/envsetup.sh is missing after sync!" | tee -a "$sync_log"
+            exit 1
+          fi
+
+          echo "V04 PASS: full repo sync completed successfully."
 
       # ============================================================
       # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
@@ -500,10 +505,7 @@ jobs:
         run: |
           set +e
           
-          cd "$GITHUB_WORKSPACE/android" 2>/dev/null || {
-            echo "WARN: android directory not found, trying nested path..."
-            cd "$GITHUB_WORKSPACE/android/android" 2>/dev/null || true
-          }
+          cd "$GITHUB_WORKSPACE/android" 2>/dev/null || exit 0
           
           log="$GITHUB_WORKSPACE/$DIAG_DIR/05-source-verification.log"
           exec > >(tee -a "$log") 2>&1
