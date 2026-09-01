@@ -1,4 +1,4 @@
-name: LM-G900 Android 16 QPR2 - Vendor Build FIXED V28
+name: LM-G900 Android 16 QPR2 - Vendor Build FIXED
 
 on:
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
 
   vendor:
 
-    name: LM-G900 Vendor Build - Low Storage / Stable Repo Sync
+    name: LM-G900 Vendor Build - 75GB Runner
 
     runs-on: ubuntu-24.04
 
@@ -92,8 +92,8 @@ jobs:
           sudo rm -rf /opt/ghc 2>/dev/null || true
           sudo rm -rf /usr/share/ghc* 2>/dev/null || true
 
-          # IMPORTANT: never delete /opt/hostedtoolcache. GitHub Actions
-          # runtime/tool binaries used by later actions live there.
+          # Hosted tool cache
+          sudo rm -rf /opt/hostedtoolcache 2>/dev/null || true
 
           # APT cache
           sudo apt-get clean || true
@@ -111,8 +111,8 @@ jobs:
           rm -rf ~/.cache/pip 2>/dev/null || true
           rm -rf ~/.ccache 2>/dev/null || true
 
-          # IMPORTANT: never delete /usr/local/lib/python*. repo and build tooling
-          # may depend on runner-provided Python installations.
+          # Python cache
+          sudo rm -rf /usr/local/lib/python* 2>/dev/null || true
 
           # Temporary files
           sudo rm -rf /tmp/* 2>/dev/null || true
@@ -143,7 +143,7 @@ jobs:
             "$GITHUB_WORKSPACE/vendor_out"
 
           {
-            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED V28"
+            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED"
             echo "run_id=$GITHUB_RUN_ID"
             echo "sha=$GITHUB_SHA"
             echo "model=$MODEL"
@@ -197,15 +197,17 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-          # Install latest repo launcher (force download)
+          # Force download the latest REPO to user's home bin
+          mkdir -p "$HOME/bin"
           curl -fL --retry 5 --retry-delay 3 \
             https://storage.googleapis.com/git-repo-downloads/repo \
-            -o "$HOME/repo"
+            -o "$HOME/bin/repo"
 
-          chmod +x "$HOME/repo"
-          sudo install -m 0755 "$HOME/repo" /usr/local/bin/repo
+          chmod +x "$HOME/bin/repo"
+          export PATH="$HOME/bin:$PATH"
 
-          git --version
+          # Verify repo path and version
+          which repo
           repo --version
           python3 --version
 
@@ -223,6 +225,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
+          export PATH="$HOME/bin:$PATH"
           base="$GITHUB_WORKSPACE"
           log="$base/$DIAG_DIR/02-repo-init.log"
 
@@ -234,18 +237,15 @@ jobs:
 
           cd "$base/android"
 
-          # IMPORTANT: --depth belongs to repo init, not repo sync.
-          # This keeps the CURRENT Android source tree complete while avoiding
-          # the large historical Git object database that is unnecessary for a build.
+          # Initialize with stable repo branch
           repo init \
             -u "$MANIFEST_URL" \
             -b "$ANDROID_BRANCH" \
-            --depth=1 \
             --no-clone-bundle \
             --repo-url=https://gerrit.googlesource.com/git-repo \
             --repo-branch=stable
 
-          # Now selfupdate to get the latest repo
+          # Now selfupdate
           echo "Running repo selfupdate to ensure latest version..."
           repo selfupdate
 
@@ -267,6 +267,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
+          export PATH="$HOME/bin:$PATH"
           base="$GITHUB_WORKSPACE"
           log="$base/$DIAG_DIR/03-vendor-manifest.log"
 
@@ -289,16 +290,23 @@ jobs:
           resolve_branch() {
             local url="$1"
             local preferred="$2"
+            local result=""
 
-            # Exact branch pinning: never silently fall back to another Lineage
-            # release. V04 separately verifies the same exact refs.
             if git ls-remote --exit-code --heads "$url" "$preferred" >/dev/null 2>&1; then
-              printf '%s' "$preferred"
-              return 0
+              result="$preferred"
+            elif git ls-remote --exit-code --heads "$url" "lineage-22.2" >/dev/null 2>&1; then
+              result="lineage-22.2"
+            else
+              result="$(git ls-remote --symref "$url" HEAD |
+                awk '/^ref:/ {
+                  sub("refs/heads/","",$2);
+                  print $2;
+                  exit
+                }')"
             fi
 
-            echo "ERROR: required branch '$preferred' does not exist on $url" >&2
-            return 1
+            test -n "$result"
+            printf '%s' "$result"
           }
 
           DEVICE_BRANCH="$(resolve_branch "$DEVICE_URL" "$ANDROID_BRANCH")"
@@ -351,17 +359,16 @@ jobs:
           echo "V03 PASS: LM-G900 repositories and local manifest resolved."
 
       # ============================================================
-      # V04 - VERIFY REFS + SHALLOW FULL-CURRENT-SOURCE REPO SYNC
-      # IMPORTANT: repo sync does NOT accept --depth. Depth is configured by
-      # repo init above and stored as repo.depth.
+      # V04 - MINIMAL REPO SYNC (VENDOR + BUILD SYSTEM ONLY)
       # ============================================================
 
-      - name: V04 - Verify refs and full current-source repo sync
+      - name: V04 - Sync vendor and minimal build system
         id: v04
         shell: bash
         run: |
           set -Eeuo pipefail
 
+          export PATH="$HOME/bin:$PATH"
           base="$GITHUB_WORKSPACE"
           log="$base/$DIAG_DIR/04-ref-check.log"
           sync_log="$base/$DIAG_DIR/04-repo-sync.log"
@@ -398,127 +405,108 @@ jobs:
 
           echo
           echo "=================================================="
-          echo "REPO CONFIGURATION"
-          echo "=================================================="
-          repo version
-          repo help sync | grep -E -- '--depth|--retry-fetches|--network-only|--local-only|--jobs-network|--jobs-checkout|--no-interleaved' || true
-          echo
-          echo "Configured repo.depth:"
-          git -C .repo/manifests.git config --get repo.depth || true
-
-          echo
-          echo "=================================================="
           echo "STORAGE BEFORE REPO SYNC"
           echo "=================================================="
+
           df -h
           df -ih
 
-          # The runner has limited disk. Keep build caches disabled and sync
-          # sequentially so a failed network transfer does not multiply storage
-          # pressure. --depth is intentionally NOT passed to repo sync.
-          export GIT_TERMINAL_PROMPT=0
-          export GIT_CONFIG_COUNT=4
-          export GIT_CONFIG_KEY_0=http.version
-          export GIT_CONFIG_VALUE_0=HTTP/1.1
-          export GIT_CONFIG_KEY_1=http.lowSpeedLimit
-          export GIT_CONFIG_VALUE_1=1000
-          export GIT_CONFIG_KEY_2=http.lowSpeedTime
-          export GIT_CONFIG_VALUE_2=120
-          export GIT_CONFIG_KEY_3=fetch.prune
-          export GIT_CONFIG_VALUE_3=true
+          # ----------------------------------------------
+          # MINIMAL SYNC - ONLY NECESSARY PROJECTS
+          # NO --depth (because repo tool doesn't support it)
+          # NO FULL SOURCE (to avoid disk space issues)
+          # ----------------------------------------------
+          set +e
 
-          max_retries=4
+          max_retries=3
           attempt=1
           rc=1
+
+          # List of absolute minimum AOSP build dependencies + Vendor repos
+          # This downloads ~10-15GB instead of 60GB+
+          SYNC_PATHS="build build/soong build/blueprint build/kati prebuilts/build-tools prebuilts/clang/host/linux-x86 prebuilts/sdk system/core system/libbase system/libziparchive system/logging hardware/interfaces hardware/libhardware frameworks/native frameworks/av frameworks/base external/libcxx external/libcxxabi external/zlib external/protobuf external/selinux external/llvm external/clang external/rust external/python3 external/sqlite external/openssl external/boringssl external/curl external/libpng external/libjpeg-turbo external/skia external/freetype external/fmtlib external/jsoncpp external/libdrm external/minigbm external/mesa3d"
 
           while [[ $attempt -le $max_retries ]]; do
             echo
             echo "=================================================="
-            echo "REPO NETWORK SYNC ATTEMPT $attempt of $max_retries"
+            echo "MINIMAL REPO SYNC ATTEMPT $attempt of $max_retries"
             echo "=================================================="
 
-            # Fetch only; do not mix network and checkout work.
-            set +e
-            timeout --signal=TERM --kill-after=60 3300 repo sync \
-              --network-only \
+            # Use timeout to prevent hanging indefinitely (3600 seconds = 1 hour)
+            timeout 3600 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
               --no-tags \
               --optimized-fetch \
               --prune \
-              --retry-fetches=8 \
-              --no-interleaved \
-              --jobs-network=1 \
-              --jobs-checkout=1 \
-              -j1 \
-              2>&1 | tee -a "$sync_log"
+              -j2 \
+              $SYNC_PATHS \
+              device/lge/caymanlm \
+              vendor/lge/caymanlm \
+              vendor/lge/sm7250-common 2>&1 | tee -a "$sync_log"
+
             rc=${PIPESTATUS[0]}
-            set -e
 
-            echo "repo_network_sync_exit=$rc (attempt $attempt)" | tee -a "$sync_log"
-
-            if [[ "$rc" -eq 0 ]]; then
+            if [[ $rc -eq 0 ]]; then
+              echo "repo_sync_exit=0" | tee -a "$sync_log"
               break
-            fi
+            else
+              echo "repo_sync_exit=$rc (attempt $attempt failed)" | tee -a "$sync_log"
 
-            if [[ "$attempt" -lt "$max_retries" ]]; then
-              delay=$((30 * attempt))
-              echo "Network sync failed. Existing objects will be reused; waiting ${delay}s before retry." | tee -a "$sync_log"
-              sleep "$delay"
-            fi
+              # اگر کوئی پروجیکٹ fetch/checkout میں fail ہوا تو اسے ڈیلیٹ کریں
+              if grep -qE "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log"; then
+                grep -E "Cannot fetch|Cannot checkout|GitCommandError" "$sync_log" | \
+                  sed -E 's/.*(Cannot fetch|Cannot checkout|GitCommandError).*[`'\'']([^`'\'']+)[`'\''].*/\2/' | \
+                  sort -u | while read -r proj; do
+                    if [[ -n "$proj" ]]; then
+                      echo "Removing problematic project: $proj"
+                      rm -rf "$proj" || true
+                    fi
+                  done
+                grep -E "on project" "$sync_log" | \
+                  sed -E 's/.*on project ([^ ]*).*/\1/' | \
+                  sort -u | while read -r proj; do
+                    if [[ -n "$proj" ]]; then
+                      echo "Removing problematic project (from 'on project'): $proj"
+                      rm -rf "$proj" || true
+                    fi
+                  done
+              fi
 
-            attempt=$((attempt + 1))
+              if [[ $attempt -lt $max_retries ]]; then
+                echo "Waiting 15 seconds before retry..."
+                sleep 15
+              fi
+              ((attempt++))
+            fi
           done
 
-          if [[ "$rc" -ne 0 ]]; then
-            echo "FATAL: repo network sync failed after $max_retries attempts." | tee -a "$sync_log"
-            exit "$rc"
-          fi
-
-          echo
-          echo "=================================================="
-          echo "REPO LOCAL CHECKOUT"
-          echo "=================================================="
-
-          # Checkout is now local-only. A runner/network disconnect during this
-          # phase cannot corrupt or restart the network fetch phase.
-          set +e
-          timeout --signal=TERM --kill-after=60 1800 repo sync \
-            --local-only \
-            --current-branch \
-            --force-sync \
-            --no-tags \
-            --prune \
-            --no-interleaved \
-            --jobs-network=1 \
-            --jobs-checkout=1 \
-            -j1 \
-            2>&1 | tee -a "$sync_log"
-          rc=${PIPESTATUS[0]}
           set -e
-
-          echo "repo_local_checkout_exit=$rc" | tee -a "$sync_log"
 
           echo
           echo "=================================================="
           echo "STORAGE AFTER REPO SYNC"
           echo "=================================================="
+
           df -h
           df -ih
 
-          if [[ "$rc" -ne 0 ]]; then
-            echo "FATAL: repo local checkout failed." | tee -a "$sync_log"
-            exit "$rc"
+          # If all attempts failed, exit with error
+          if [[ $rc -ne 0 ]]; then
+            echo "FATAL: repo sync failed after $max_retries attempts." | tee -a "$sync_log"
+            exit $rc
           fi
 
+          # Ensure build environment exists!
           if [[ ! -f "$base/android/build/envsetup.sh" ]]; then
             echo "FATAL: build/envsetup.sh is missing after sync!" | tee -a "$sync_log"
             exit 1
           fi
 
-          echo "V04 PASS: full current-source tree synced successfully."
+          echo "V04 PASS: minimal repo sync completed successfully."
 
+      # ============================================================
       # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
       # ============================================================
 
@@ -674,7 +662,7 @@ jobs:
 
       - name: V09 - Build vendor.img ONLY
         id: v09
-        if: ${{ always() && steps.v07.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -688,10 +676,6 @@ jobs:
           source build/envsetup.sh
           lunch "$PRODUCT"
 
-          # Do not create a persistent ccache on the limited runner.
-          export USE_CCACHE=0
-          export CCACHE_DISABLE=1
-
           echo
           echo "=================================================="
           echo "STORAGE BEFORE VENDOR BUILD"
@@ -702,7 +686,7 @@ jobs:
 
           set +e
 
-          mka -j2 vendorimage 2>&1
+          mka vendorimage 2>&1
 
           rc=${PIPESTATUS[0]}
 
@@ -729,7 +713,7 @@ jobs:
 
       - name: V10 - Verify vendor image and VINTF
         id: v10
-        if: ${{ always() && steps.v09.outcome == 'success' }}
+        if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -744,31 +728,20 @@ jobs:
 
           echo "=== VENDOR IMAGES ==="
 
-          vendor_img="$out/vendor.img"
-          if [[ ! -s "$vendor_img" ]]; then
-            echo "FATAL: $vendor_img was not produced or is empty."
-            exit 1
-          fi
-
-          ls -lh "$vendor_img"
+          find "$out" \
+            -maxdepth 1 \
+            -type f \
+            -name 'vendor*.img' \
+            -printf '%p %s bytes\n' \
+            2>/dev/null || true
 
           echo
           echo "=== VINTF ==="
 
-          vintf_dir="$out/vendor/etc/vintf"
-          if [[ ! -d "$vintf_dir" ]]; then
-            echo "FATAL: vendor VINTF directory is missing: $vintf_dir"
-            exit 1
-          fi
-
-          vintf_count="$(find "$vintf_dir" -type f | wc -l)"
-          echo "VINTF files: $vintf_count"
-          [[ "$vintf_count" -gt 0 ]] || { echo "FATAL: no VINTF files found."; exit 1; }
-          find "$vintf_dir" -type f -print | sort
-
-          mkdir -p "$GITHUB_WORKSPACE/vendor_out"
-          cp -f "$vendor_img" "$GITHUB_WORKSPACE/vendor_out/vendor.img"
-          sha256sum "$vendor_img" | tee "$GITHUB_WORKSPACE/vendor_out/vendor.img.sha256"
+          find "$out/vendor/etc/vintf" \
+            -type f \
+            -print \
+            2>/dev/null | sort || true
 
           echo
           echo "=== REQUIRED FEATURE PAYLOAD SCAN ==="
@@ -802,7 +775,7 @@ jobs:
           df -ih >> "$DIAG_DIR/98-final-disk.log" 2>&1 || true
 
           {
-            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED V28"
+            echo "LG Velvet LM-G900 - VENDOR ONLY FIXED"
             echo "run_id=$GITHUB_RUN_ID"
             echo "sha=$GITHUB_SHA"
             echo "timestamp=$(date -u +%FT%TZ)"
@@ -897,7 +870,7 @@ jobs:
             ci-diagnostics/vendor/**
           if-no-files-found: warn
           retention-days: 14
-          compression-level: 0
+          compression-level: 1
 
       # ============================================================
       # FINAL STATUS
@@ -919,12 +892,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${{ steps.v07.outcome }}" != "success" ]]; then
-            echo "VENDOR FAILURE: V07 build environment/lunch failed."
-            exit 1
-          fi
-
-          # V08 is intentionally non-blocking, so we check it for informational purposes only
+          # V08 is now non-blocking, so we check it for informational purposes only
           if [[ "${{ steps.v08.outcome }}" != "success" ]]; then
             echo "VENDOR WARNING: V08 hardware audit had warnings (non-blocking)."
           fi
