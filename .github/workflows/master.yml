@@ -316,7 +316,7 @@ jobs:
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
       # ============================================================
-      # V07 - BUILD ENVIRONMENT
+      # V07 - BUILD ENVIRONMENT (FIXED: set TOP)
       # ============================================================
 
       - name: V07 - Prepare vendor build environment
@@ -329,6 +329,9 @@ jobs:
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/07-product-config.log"
           exec > >(tee -a "$log") 2>&1
+
+          # Fix for "TOP: unbound variable"
+          export TOP=$(pwd)
 
           source build/envsetup.sh
           lunch "$PRODUCT"
@@ -371,7 +374,7 @@ jobs:
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
       # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY
+      # V09 - BUILD VENDOR.IMG ONLY (FIXED: set TOP)
       # ============================================================
 
       - name: V09 - Build vendor.img ONLY
@@ -384,6 +387,9 @@ jobs:
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-build.log"
           exec > >(tee -a "$log") 2>&1
+
+          # Fix for "TOP: unbound variable"
+          export TOP=$(pwd)
 
           source build/envsetup.sh
           lunch "$PRODUCT"
