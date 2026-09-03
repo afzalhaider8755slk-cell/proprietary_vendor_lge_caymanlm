@@ -314,7 +314,7 @@ jobs:
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
       # ============================================================
-      # V07 - BUILD ENVIRONMENT (FIXED: set TOP and ANDROID_GLOBAL_BUILD_PATHS)
+      # V07 - BUILD ENVIRONMENT (FIXED: set TOP, ANDROID_GLOBAL_BUILD_PATHS, ZSH_VERSION)
       # ============================================================
 
       - name: V07 - Prepare vendor build environment
@@ -331,6 +331,7 @@ jobs:
           # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
+          export ZSH_VERSION=""   # envsetup.sh checks this
 
           source build/envsetup.sh
           lunch "$PRODUCT"
@@ -373,7 +374,7 @@ jobs:
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
       # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY (FIXED: set TOP and ANDROID_GLOBAL_BUILD_PATHS)
+      # V09 - BUILD VENDOR.IMG ONLY (FIXED: set TOP, ANDROID_GLOBAL_BUILD_PATHS, ZSH_VERSION)
       # ============================================================
 
       - name: V09 - Build vendor.img ONLY
@@ -390,6 +391,7 @@ jobs:
           # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
+          export ZSH_VERSION=""
 
           source build/envsetup.sh
           lunch "$PRODUCT"
