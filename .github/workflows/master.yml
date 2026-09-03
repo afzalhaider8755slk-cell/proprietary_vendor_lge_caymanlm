@@ -1,4 +1,4 @@
-name: LM-G900 Android 16+ Vendor Build (sixteen branch)
+name: LM-G900 Android Vendor Build (lineage-23.2)
 
 on:
   workflow_dispatch:
@@ -9,22 +9,21 @@ permissions:
 
 env:
   MANIFEST_URL: "https://github.com/LineageOS/android.git"
-  ANDROID_BRANCH: "lineage-23.2"   # اگر Android 16 کا مکمل ماخذ چاہیے تو اسے بدلیں
+  ANDROID_BRANCH: "lineage-23.2"
 
   DEVICE_CODENAME: "caymanlm"
   MODEL: "LM-G900"
   PRODUCT: "lineage_caymanlm-userdebug"
 
-  # ===== یہاں آرگنائزیشن کو اپنے اکاؤنٹ میں تبدیل کریں =====
-  VENDOR_ORG: "Hirashi-so"   # پہلے lge-qcom-dev تھا
-
+  VENDOR_ORG: "Hirashi-so"
   DEVICE_REPO: "android_device_lge_caymanlm"
   VENDOR_REPO: "proprietary_vendor_lge_caymanlm"
   COMMON_VENDOR_REPO: "proprietary_vendor_lge_sm7250-common"
 
-  DEVICE_BRANCH: "sixteen"
-  VENDOR_BRANCH: "sixteen"
-  COMMON_BRANCH: "sixteen"
+  # سب برانچز lineage-23.2 پر سیٹ
+  DEVICE_BRANCH: "lineage-23.2"
+  VENDOR_BRANCH: "lineage-23.2"
+  COMMON_BRANCH: "lineage-23.2"
 
   DIAG_DIR: "ci-diagnostics/vendor"
 
@@ -32,7 +31,7 @@ jobs:
 
   vendor:
 
-    name: LM-G900 Vendor Build - 75GB Runner (sixteen)
+    name: LM-G900 Vendor Build - 75GB Runner
 
     runs-on: ubuntu-24.04
 
@@ -75,9 +74,7 @@ jobs:
           sync
 
           echo
-          echo "=================================================="
           echo "STORAGE AFTER CLEANUP"
-          echo "=================================================="
           df -h
           df -ih
 
@@ -91,7 +88,7 @@ jobs:
           set -Eeuo pipefail
           mkdir -p "$GITHUB_WORKSPACE/$DIAG_DIR" "$GITHUB_WORKSPACE/vendor_out"
           {
-            echo "LG Velvet LM-G900 - VENDOR ONLY (sixteen branch)"
+            echo "LG Velvet LM-G900 - VENDOR ONLY (lineage-23.2)"
             echo "run_id=$GITHUB_RUN_ID"
             echo "sha=$GITHUB_SHA"
             echo "model=$MODEL"
@@ -124,6 +121,8 @@ jobs:
           curl -fL --retry 5 --retry-delay 3 https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
           export PATH="$HOME/bin:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV   # PATH کو مستقبل کے سٹیپس کے لیے محفوظ کریں
+
           which repo
           repo --version
           python3 --version
@@ -154,10 +153,10 @@ jobs:
           df -h
 
       # ============================================================
-      # V03 - LOCAL MANIFEST WITH SIXTEEN BRANCHES
+      # V03 - LOCAL MANIFEST
       # ============================================================
 
-      - name: V03 - Create local manifest with sixteen branches
+      - name: V03 - Create local manifest with lineage-23.2 branches
         id: v03
         shell: bash
         run: |
@@ -182,10 +181,10 @@ jobs:
 
           cat .repo/local_manifests/g900lm.xml
           repo manifest >/dev/null
-          echo "V03 PASS: local manifest created with sixteen branches."
+          echo "V03 PASS"
 
       # ============================================================
-      # V04 - FULL REPO SYNC (WITH DEPTH=1, AUTO FALLBACK)
+      # V04 - FULL REPO SYNC (WITHOUT --depth)
       # ============================================================
 
       - name: V04 - Verify refs and full repo sync
@@ -233,14 +232,9 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
-            timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune --depth=1 -j4 2>&1 | tee -a "$sync_log"
+            # --depth ہٹا دیا کیونکہ init پہلے سے shallow ہے
+            timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
-
-            if [[ $rc -ne 0 ]] && grep -q "no such option: --depth" "$sync_log"; then
-              echo "WARN: --depth not supported, falling back to full sync..."
-              timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
-              rc=${PIPESTATUS[0]}
-            fi
 
             if [[ $rc -eq 0 ]]; then
               echo "repo_sync_exit=0" | tee -a "$sync_log"
@@ -288,14 +282,19 @@ jobs:
         if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
         run: |
+          export PATH="$HOME/bin:$PATH"
           set +e
           cd "$GITHUB_WORKSPACE/android" 2>/dev/null || exit 0
           log="$GITHUB_WORKSPACE/$DIAG_DIR/05-source-verification.log"
           exec > >(tee -a "$log") 2>&1
+
           echo "=== REQUIRED PROJECTS ==="
           repo list | grep -E 'device/lge/caymanlm|vendor/lge/caymanlm|vendor/lge/sm7250-common'
+
+          echo
           echo "=== PINNED MANIFEST ==="
           repo manifest -r
+
           exit 0
 
       # ============================================================
@@ -308,9 +307,11 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          export PATH="$HOME/bin:$PATH"
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/06-model-identity.log"
           exec > >(tee -a "$log") 2>&1
+
           echo "MODEL=$MODEL, CODENAME=$DEVICE_CODENAME, PRODUCT=$PRODUCT"
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
@@ -324,11 +325,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          export PATH="$HOME/bin:$PATH"
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/07-product-config.log"
           exec > >(tee -a "$log") 2>&1
+
           source build/envsetup.sh
           lunch "$PRODUCT"
+
           echo "PRODUCT_DEVICE=$(get_build_var PRODUCT_DEVICE)"
           echo "TARGET_PRODUCT=$(get_build_var TARGET_PRODUCT)"
           echo "TARGET_BUILD_VARIANT=$(get_build_var TARGET_BUILD_VARIANT)"
@@ -343,11 +347,15 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          export PATH="$HOME/bin:$PATH"
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/08-hardware-audit.log"
           : > "$log"
+
           audit() {
-            local label="$1"; local pattern="$2"; shift 2
+            local label="$1"
+            local pattern="$2"
+            shift 2
             echo "=== $label ===" | tee -a "$log"
             if grep -RniE "$pattern" "$@" >> "$log" 2>&1; then
               echo "PASS: $label" | tee -a "$log"
@@ -355,6 +363,7 @@ jobs:
               echo "WARN: No matching lines found for $label (non-blocking)." | tee -a "$log"
             fi
           }
+
           audit "Fingerprint" 'fingerprint|fpc|goodix|biometric' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
           audit "Vibration" 'vibrator|haptics|ff-memless|timed_output' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
           audit "Dual-SIM" 'dual.?sim|dsds|simslot|sim.?slot|multisim' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
@@ -371,18 +380,23 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          export PATH="$HOME/bin:$PATH"
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-build.log"
           exec > >(tee -a "$log") 2>&1
+
           source build/envsetup.sh
           lunch "$PRODUCT"
+
           df -h
           set +e
           mka vendorimage 2>&1
           rc=${PIPESTATUS[0]}
           set -e
+
           echo "vendorimage_exit=$rc"
           echo "$rc" > "$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-exit-code.txt"
+
           df -h
           exit "$rc"
 
@@ -396,13 +410,18 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          export PATH="$HOME/bin:$PATH"
           cd "$GITHUB_WORKSPACE/android"
           log="$GITHUB_WORKSPACE/$DIAG_DIR/10-vendor-verification.log"
           exec > >(tee -a "$log") 2>&1
+
           out="out/target/product/$DEVICE_CODENAME"
+          echo "=== VENDOR IMAGES ==="
           find "$out" -maxdepth 1 -type f -name 'vendor*.img' -printf '%p %s bytes\n' 2>/dev/null || true
+
           echo "=== VINTF ==="
           find "$out/vendor/etc/vintf" -type f -print 2>/dev/null | sort || true
+
           echo "=== FEATURE SCAN ==="
           grep -RniE 'fingerprint|vibrator|haptics|dual.?sim|dsds|mixer_paths|audio_policy|ims|iwlan|vowifi|wifi.?calling' "$out/vendor" 2>/dev/null | head -500 || true
 
@@ -416,15 +435,19 @@ jobs:
         shell: bash
         run: |
           set +e
+          export PATH="$HOME/bin:$PATH"
           cd "$GITHUB_WORKSPACE"
           mkdir -p "$DIAG_DIR" vendor_out
+
           df -h > "$DIAG_DIR/98-final-disk.log" 2>&1
           df -ih >> "$DIAG_DIR/98-final-disk.log" 2>&1
+
           {
-            echo "LG Velvet LM-G900 - VENDOR ONLY (sixteen)"
+            echo "LG Velvet LM-G900 - VENDOR ONLY (lineage-23.2)"
             echo "run_id=$GITHUB_RUN_ID"
             echo "sha=$GITHUB_SHA"
             echo "timestamp=$(date -u +%FT%TZ)"
+            echo
             echo "=== STEP OUTCOMES ==="
             echo "V00=${{ steps.v00.outcome }}"
             echo "V01=${{ steps.v01.outcome }}"
@@ -437,13 +460,15 @@ jobs:
             echo "V08=${{ steps.v08.outcome }}"
             echo "V09=${{ steps.v09.outcome }}"
             echo "V10=${{ steps.v10.outcome }}"
-            echo "=== ERROR / FAILURE SUMMARY ==="
+            echo
+            echo "=== ERROR / FAILURE SUMMARY (full context) ==="
             grep -RniE 'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback' "$DIAG_DIR" 2>/dev/null | tail -5000 || true
           } > "$DIAG_DIR/99-ERROR-SUMMARY.log"
 
           {
             echo "========== ERROR LOG (extracted) =========="
             echo "Generated: $(date -u +%FT%TZ)"
+            echo
             grep -RniE 'error|fatal|failed|failure|FAIL|ERROR|invalid|not found|does not exist|permission denied|No space left on device|Errno 28|Unable|exception|traceback' "$DIAG_DIR" 2>/dev/null | head -2000
           } > "$DIAG_DIR/error.txt"
 
@@ -451,9 +476,12 @@ jobs:
           find "$out" -maxdepth 1 -type f -name 'vendor*.img' -exec cp -v {} vendor_out/ \; 2>/dev/null || true
 
           {
-            echo "MANDATORY ERROR LOG: $DIAG_DIR/error.txt"
+            echo "MANDATORY ERROR LOG (short version):"
+            echo "$DIAG_DIR/error.txt"
+            echo
             echo "=== DIAGNOSTIC FILES ==="
             find "$DIAG_DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' 2>/dev/null | sort
+            echo
             echo "=== VENDOR OUTPUT ==="
             find vendor_out -maxdepth 1 -type f -printf '%f %s bytes\n' 2>/dev/null | sort
           } > vendor_out/ARTIFACT-LIST.txt
@@ -485,26 +513,32 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+
           if [[ "${{ steps.v03.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: V03 manifest creation failed."
             exit 1
           fi
+
           if [[ "${{ steps.v04.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: V04 repo sync failed."
             exit 1
           fi
+
           if [[ "${{ steps.v08.outcome }}" != "success" ]]; then
             echo "VENDOR WARNING: V08 hardware audit had warnings (non-blocking)."
           fi
+
           if [[ "${{ steps.v09.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: vendorimage build failed."
             exit 1
           fi
+
           if [[ "${{ steps.v10.outcome }}" != "success" ]]; then
             echo "VENDOR FAILURE: vendor verification failed."
             exit 1
           fi
+
           echo "=================================================="
-          echo "VENDOR SUCCESS (sixteen branch)"
-          echo "LM-G900 vendor-only workflow completed."
+          echo "VENDOR SUCCESS"
+          echo "LM-G900 vendor-only workflow completed with lineage-23.2."
           echo "=================================================="
