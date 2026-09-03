@@ -38,10 +38,6 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # V00 - CHECKOUT
-      # ============================================================
-
       - name: V00 - Checkout repository
         id: v00
         uses: actions/checkout@v4
@@ -49,19 +45,12 @@ jobs:
           fetch-depth: 1
           clean: false
 
-      # ============================================================
-      # V00.2 - EXTREME CLEANUP (Base Image Cleanup)
-      # ============================================================
-
       - name: V00.2 - Free runner storage (extreme)
         id: cleanup
         shell: bash
         run: |
           set -Eeuo pipefail
-          echo "=================================================="
           echo "EXTREME RUNNER CLEANUP"
-          echo "=================================================="
-
           sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /usr/share/dotnet /usr/local/share/powershell /usr/local/lib/node_modules /opt/ghc /usr/share/ghc* /opt/hostedtoolcache /usr/local/share/boost /usr/local/julia /usr/local/graalvm /usr/share/swift /opt/microsoft /opt/pipx
           sudo rm -rf /usr/local/lib/python* /tmp/* /var/tmp/*
           sudo rm -rf /usr/local/go /usr/local/bin/go /usr/local/bin/gofmt
@@ -72,14 +61,9 @@ jobs:
           rm -rf ~/.cache/* ~/.gradle/caches/* ~/.npm/_cacache ~/.m2/repository/* ~/.cache/pip ~/.ccache
           rm -rf ~/android-sdk-linux /opt/android-sdk
           sync
-
           echo "STORAGE AFTER CLEANUP"
           df -h
           df -ih
-
-      # ============================================================
-      # V00.3 - CREATE DIAGNOSTICS
-      # ============================================================
 
       - name: V00.3 - Create diagnostics
         shell: bash
@@ -98,10 +82,6 @@ jobs:
             echo "runner=$RUNNER_NAME"
             echo "started=$(date -u +%FT%TZ)"
           } | tee "$GITHUB_WORKSPACE/$DIAG_DIR/00-run.log"
-
-      # ============================================================
-      # V01 - INSTALL DEPENDENCIES
-      # ============================================================
 
       - name: V01 - Install build dependencies and update repo
         id: v01
@@ -127,11 +107,7 @@ jobs:
           python3 --version
           df -h
 
-      # ============================================================
-      # V02 - INITIALIZE ANDROID SOURCE (Shallow Clone)
-      # ============================================================
-
-      - name: V02 - Initialize Android source and update repo tool
+      - name: V02 - Initialize Android source (Shallow Clone)
         id: v02
         shell: bash
         run: |
@@ -151,11 +127,7 @@ jobs:
           echo "V02 PASS"
           df -h
 
-      # ============================================================
-      # V03 - LOCAL MANIFEST (Remove Heavy / Unnecessary Projects - CORRECTED)
-      # ============================================================
-
-      - name: V03 - Create local manifest with lineage-23.2 branches and remove heavy projects
+      - name: V03 - Create local manifest with lineage-23.2 branches
         id: v03
         shell: bash
         run: |
@@ -168,7 +140,6 @@ jobs:
           cd "$base/android"
           mkdir -p .repo/local_manifests
 
-          # 1. Add the required device/vendor repos
           cat > .repo/local_manifests/g900lm.xml <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
@@ -179,56 +150,9 @@ jobs:
           </manifest>
           EOF
 
-          # 2. Create a manifest that REMOVES all heavy projects using CORRECT platform/ prefix
-          cat > .repo/local_manifests/remove-heavy.xml <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <manifest>
-            <!-- Remove Heavy App packages (not needed for vendor) -->
-            <remove-project name="platform/packages/apps/Camera2" />
-            <remove-project name="platform/packages/apps/Gallery2" />
-            <remove-project name="platform/packages/apps/Launcher3" />
-            <remove-project name="platform/packages/apps/Messaging" />
-            <remove-project name="platform/packages/apps/Settings" />
-            <remove-project name="platform/packages/apps/SetupWizard" />
-            
-            <!-- Remove CTS, Development, Tests (not needed for vendor) -->
-            <remove-project name="platform/cts" />
-            <remove-project name="platform/development" />
-            <remove-project name="platform/test" />
-            
-            <!-- Remove Heavy Frameworks (like Opt & legacy) -->
-            <remove-project name="platform/frameworks/opt/telephony" />
-            <remove-project name="platform/frameworks/opt/net/wifi" />
-            <remove-project name="platform/frameworks/opt/net/ims" />
-            
-            <!-- Remove Kernel (not needed for vendor-only build) -->
-            <remove-project name="platform/kernel/prebuilts" />
-            
-            <!-- Remove Recovery & Bootable (not strictly needed for vendor only) -->
-            <remove-project name="platform/bootable/recovery" />
-            
-            <!-- Remove Heavy External Projects -->
-            <remove-project name="platform/external/chromium-webview" />
-            <remove-project name="platform/external/llvm" />
-            <remove-project name="platform/external/rust" />
-            <remove-project name="platform/external/tensorflow" />
-            <remove-project name="platform/external/angle" />
-            <remove-project name="platform/external/webrtc" />
-            
-            <!-- Remove Lineage SDK & Vendor (not needed for vendor) -->
-            <remove-project name="LineageOS/android_lineage-sdk" />
-            <remove-project name="LineageOS/android_vendor_lineage" />
-          </manifest>
-          EOF
-
           cat .repo/local_manifests/g900lm.xml
-          cat .repo/local_manifests/remove-heavy.xml
           echo "V03 PASS"
           df -h
-
-      # ============================================================
-      # V04 - FULL REPO SYNC (Only required projects get downloaded)
-      # ============================================================
 
       - name: V04 - Verify refs and full repo sync
         id: v04
@@ -275,7 +199,6 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
-            # Shallow clone is inherited from repo init
             timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
 
@@ -319,16 +242,23 @@ jobs:
           repo forall -c 'git gc --prune=now' 2>/dev/null
           set -e
 
-          echo "Disk after sync and GC:"
+          echo "CRITICAL CLEANUP: Deleting HEAVY, UNNECESSARY directories (Preserving build critical ones!)"
+          # Safe to delete: Apps, Tests, and extra AOSP components not needed for vendor build
+          rm -rf cts development test sdk tools lineage-sdk
+          rm -rf packages/apps
+          rm -rf external/chromium external/llvm external/rust external/tensorflow external/angle external/webrtc
+          rm -rf bootable/recovery
+          rm -rf frameworks/opt/telephony frameworks/opt/net/wifi frameworks/opt/net/ims
+          
+          # DO NOT DELETE THESE - REQUIRED FOR VENDOR BUILD:
+          # build, system, external (small libraries only), frameworks/base, frameworks/native, bionic, hardware, prebuilts/clang (basic), device, vendor
+
+          echo "Disk after massive cleanup:"
           df -h
 
           echo "V04 PASS: full repo sync completed successfully. Space freed!"
 
-      # ============================================================
-      # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
-      # ============================================================
-
-      - name: V05 - Verify synced vendor source
+      - name: V05 - Verify synced vendor source (NON-BLOCKING)
         id: v05
         if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
@@ -341,16 +271,10 @@ jobs:
 
           echo "=== REQUIRED PROJECTS ==="
           repo list | grep -E 'device/lge/caymanlm|vendor/lge/caymanlm|vendor/lge/sm7250-common'
-
           echo
           echo "=== PINNED MANIFEST ==="
           repo manifest -r
-
           exit 0
-
-      # ============================================================
-      # V06 - LM-G900 IDENTITY
-      # ============================================================
 
       - name: V06 - Verify LM-G900 identity
         id: v06
@@ -366,10 +290,6 @@ jobs:
           echo "MODEL=$MODEL, CODENAME=$DEVICE_CODENAME, PRODUCT=$PRODUCT"
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
-      # ============================================================
-      # V07 - BUILD ENVIRONMENT (FIXED: Added USE_LEFTOVERS)
-      # ============================================================
-
       - name: V07 - Prepare vendor build environment
         id: v07
         if: ${{ always() && steps.v04.outcome == 'success' }}
@@ -381,7 +301,6 @@ jobs:
           log="$GITHUB_WORKSPACE/$DIAG_DIR/07-product-config.log"
           exec > >(tee -a "$log") 2>&1
 
-          # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
@@ -394,10 +313,6 @@ jobs:
           echo "PRODUCT_DEVICE=$(get_build_var PRODUCT_DEVICE)"
           echo "TARGET_PRODUCT=$(get_build_var TARGET_PRODUCT)"
           echo "TARGET_BUILD_VARIANT=$(get_build_var TARGET_BUILD_VARIANT)"
-
-      # ============================================================
-      # V08 - HARDWARE AUDIT (NON-FATAL)
-      # ============================================================
 
       - name: V08 - Mandatory hardware integration audit
         id: v08
@@ -428,10 +343,6 @@ jobs:
           audit "Audio" 'mixer_paths|audio_policy|audio_hw|primary\.sm|tinyalsa|snd' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
-      # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY (FIXED: Added USE_LEFTOVERS)
-      # ============================================================
-
       - name: V09 - Build vendor.img ONLY
         id: v09
         if: ${{ always() && steps.v04.outcome == 'success' }}
@@ -443,7 +354,6 @@ jobs:
           log="$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-build.log"
           exec > >(tee -a "$log") 2>&1
 
-          # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
@@ -465,10 +375,6 @@ jobs:
           df -h
           exit "$rc"
 
-      # ============================================================
-      # V10 - VERIFY VENDOR IMAGE + VINTF
-      # ============================================================
-
       - name: V10 - Verify vendor image and VINTF
         id: v10
         if: ${{ always() && steps.v04.outcome == 'success' }}
@@ -489,10 +395,6 @@ jobs:
 
           echo "=== FEATURE SCAN ==="
           grep -RniE 'fingerprint|vibrator|haptics|dual.?sim|dsds|mixer_paths|audio_policy|ims|iwlan|vowifi|wifi.?calling' "$out/vendor" 2>/dev/null | head -500 || true
-
-      # ============================================================
-      # V11 - ALWAYS COLLECT DIAGNOSTICS
-      # ============================================================
 
       - name: V11 - ALWAYS collect diagnostics
         id: v11
@@ -553,10 +455,6 @@ jobs:
 
           tar -czf "vendor_out/LM-G900-VENDOR-DIAGNOSTICS-${GITHUB_RUN_ID}.tar.gz" "$DIAG_DIR" 2>/dev/null || true
 
-      # ============================================================
-      # V12 - UPLOAD ARTIFACTS ALWAYS
-      # ============================================================
-
       - name: V12 - Upload vendor diagnostics ALWAYS
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
@@ -568,10 +466,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           compression-level: 1
-
-      # ============================================================
-      # FINAL STATUS
-      # ============================================================
 
       - name: FINAL - Return vendor status
         if: ${{ always() }}
