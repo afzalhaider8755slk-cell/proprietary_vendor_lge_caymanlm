@@ -145,6 +145,7 @@ jobs:
           mkdir -p "$base/android"
           cd "$base/android"
 
+          # NOTE: --depth=1 is only valid here in repo init
           repo init -u "$MANIFEST_URL" -b "$ANDROID_BRANCH" --depth=1 --no-clone-bundle --repo-url=https://gerrit.googlesource.com/git-repo --repo-branch=stable
           repo selfupdate
           test -s "$base/android/.repo/manifests/default.xml"
@@ -183,7 +184,7 @@ jobs:
           echo "V03 PASS"
 
       # ============================================================
-      # V04 - FULL REPO SYNC (FIXED: Added --depth=1 to save disk space)
+      # V04 - FULL REPO SYNC
       # ============================================================
 
       - name: V04 - Verify refs and full repo sync
@@ -231,8 +232,8 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
-            # *** FIX: Added --depth=1 so it only downloads the latest commit instead of full history ***
-            timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune --depth=1 -j4 2>&1 | tee -a "$sync_log"
+            # FIXED: Removed --depth=1 because it is NOT valid for repo sync
+            timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
 
             if [[ $rc -eq 0 ]]; then
@@ -333,7 +334,7 @@ jobs:
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
-          # *** FIX: Added this line ***
+          # FIXED: Added this line to prevent unbound variable error
           export ENVSETUP_NO_COMPLETION="true"
 
           source build/envsetup.sh
@@ -395,7 +396,7 @@ jobs:
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
-          # *** FIX: Added this line ***
+          # FIXED: Added this line to prevent unbound variable error
           export ENVSETUP_NO_COMPLETION="true"
 
           source build/envsetup.sh
