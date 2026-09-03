@@ -50,7 +50,7 @@ jobs:
           clean: false
 
       # ============================================================
-      # V00.2 - EXTREME CLEANUP (more space - UPDATED)
+      # V00.2 - EXTREME CLEANUP (Aggressive)
       # ============================================================
 
       - name: V00.2 - Free runner storage (extreme)
@@ -62,16 +62,15 @@ jobs:
           echo "EXTREME RUNNER CLEANUP"
           echo "=================================================="
 
+          # Delete all heavyweight software to free space
           sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /usr/share/dotnet /usr/local/share/powershell /usr/local/lib/node_modules /opt/ghc /usr/share/ghc* /opt/hostedtoolcache /usr/local/share/boost /usr/local/julia /usr/local/graalvm /usr/share/swift /opt/microsoft /opt/pipx
+          sudo rm -rf /usr/local/lib/python* /tmp/* /var/tmp/*
+          sudo rm -rf /usr/local/go /usr/local/bin/go /usr/local/bin/gofmt
           sudo apt-get clean || true
           sudo rm -rf /var/lib/apt/lists/*
           docker system prune -af 2>/dev/null || true
           docker builder prune -af 2>/dev/null || true
           rm -rf ~/.cache/* ~/.gradle/caches/* ~/.npm/_cacache ~/.m2/repository/* ~/.cache/pip ~/.ccache
-
-          # *** EXTRA CLEANUP FOR LIMITED DISK ***
-          sudo rm -rf /usr/local/lib/python* /tmp/* /var/tmp/*
-          sudo rm -rf /usr/local/share/boost /usr/local/julia /usr/local/graalvm /usr/share/swift
           rm -rf ~/android-sdk-linux /opt/android-sdk
           sync
 
@@ -130,7 +129,7 @@ jobs:
           df -h
 
       # ============================================================
-      # V02 - INITIALIZE ANDROID SOURCE
+      # V02 - INITIALIZE ANDROID SOURCE (Shallow Clone)
       # ============================================================
 
       - name: V02 - Initialize Android source and update repo tool
@@ -185,7 +184,7 @@ jobs:
           echo "V03 PASS"
 
       # ============================================================
-      # V04 - FULL REPO SYNC (UPDATED: Added Git Garbage Collection)
+      # V04 - FULL REPO SYNC + MASSIVE DISK CLEANUP (CRITICAL FIX)
       # ============================================================
 
       - name: V04 - Verify refs and full repo sync
@@ -233,6 +232,7 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
+            # Shallow clone (depth is handled by repo init)
             timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
 
@@ -271,16 +271,22 @@ jobs:
             exit 1
           fi
 
-          # *** CRITICAL: Free up Disk Space after Sync ***
-          echo "Running git gc to free up disk space (full clean)..."
+          echo "Running git gc to free up disk space..."
           set +e
           repo forall -c 'git gc --prune=now' 2>/dev/null
-          repo forall -c 'git reflog expire --expire=now --all' 2>/dev/null
           set -e
-          echo "Disk after cleanup:"
+
+          # *** CRITICAL: DELETE UNNECESSARY HEAVY DIRECTORIES TO FREE SPACE ***
+          echo "Deleting unnecessary directories to free space for vendor build..."
+          rm -rf frameworks packages system external kernel bootable cts test dalvik development sdk tools lineage-sdk
+          rm -rf art bionic device/generic device/google device/sample hardware/interfaces hardware/libhardware_legacy
+          rm -rf prebuilts/clang/host/linux-x86/clang-r416183b prebuilts/ndk
+          rm -rf .repo/projects/frameworks .repo/projects/packages .repo/projects/system .repo/projects/external .repo/projects/kernel
+
+          echo "Disk after massive cleanup:"
           df -h
 
-          echo "V04 PASS: full repo sync completed successfully."
+          echo "V04 PASS: full repo sync completed successfully. Space freed!"
 
       # ============================================================
       # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
