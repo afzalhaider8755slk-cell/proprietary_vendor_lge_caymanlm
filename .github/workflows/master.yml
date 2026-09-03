@@ -20,7 +20,6 @@ env:
   VENDOR_REPO: "proprietary_vendor_lge_caymanlm"
   COMMON_VENDOR_REPO: "proprietary_vendor_lge_sm7250-common"
 
-  # سب برانچز lineage-23.2 پر سیٹ
   DEVICE_BRANCH: "lineage-23.2"
   VENDOR_BRANCH: "lineage-23.2"
   COMMON_BRANCH: "lineage-23.2"
@@ -121,7 +120,7 @@ jobs:
           curl -fL --retry 5 --retry-delay 3 https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
           export PATH="$HOME/bin:$PATH"
-          echo "PATH=$PATH" >> $GITHUB_ENV   # PATH کو مستقبل کے سٹیپس کے لیے محفوظ کریں
+          echo "PATH=$PATH" >> $GITHUB_ENV
 
           which repo
           repo --version
@@ -232,7 +231,6 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
-            # --depth ہٹا دیا کیونکہ init پہلے سے shallow ہے
             timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
 
@@ -316,7 +314,7 @@ jobs:
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
       # ============================================================
-      # V07 - BUILD ENVIRONMENT (FIXED: set TOP)
+      # V07 - BUILD ENVIRONMENT (FIXED: set TOP and ANDROID_GLOBAL_BUILD_PATHS)
       # ============================================================
 
       - name: V07 - Prepare vendor build environment
@@ -330,8 +328,9 @@ jobs:
           log="$GITHUB_WORKSPACE/$DIAG_DIR/07-product-config.log"
           exec > >(tee -a "$log") 2>&1
 
-          # Fix for "TOP: unbound variable"
+          # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
+          export ANDROID_GLOBAL_BUILD_PATHS=""
 
           source build/envsetup.sh
           lunch "$PRODUCT"
@@ -374,7 +373,7 @@ jobs:
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
       # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY (FIXED: set TOP)
+      # V09 - BUILD VENDOR.IMG ONLY (FIXED: set TOP and ANDROID_GLOBAL_BUILD_PATHS)
       # ============================================================
 
       - name: V09 - Build vendor.img ONLY
@@ -388,8 +387,9 @@ jobs:
           log="$GITHUB_WORKSPACE/$DIAG_DIR/09-vendorimage-build.log"
           exec > >(tee -a "$log") 2>&1
 
-          # Fix for "TOP: unbound variable"
+          # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
+          export ANDROID_GLOBAL_BUILD_PATHS=""
 
           source build/envsetup.sh
           lunch "$PRODUCT"
