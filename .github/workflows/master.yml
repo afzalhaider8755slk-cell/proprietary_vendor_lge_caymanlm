@@ -183,7 +183,7 @@ jobs:
           echo "V03 PASS"
 
       # ============================================================
-      # V04 - FULL REPO SYNC (WITHOUT --depth)
+      # V04 - FULL REPO SYNC (FIXED: Added --depth=1 to save disk space)
       # ============================================================
 
       - name: V04 - Verify refs and full repo sync
@@ -231,7 +231,8 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
-            timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
+            # *** FIX: Added --depth=1 so it only downloads the latest commit instead of full history ***
+            timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune --depth=1 -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
 
             if [[ $rc -eq 0 ]]; then
@@ -314,7 +315,7 @@ jobs:
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
       # ============================================================
-      # V07 - BUILD ENVIRONMENT (FIXED: set TOP, ANDROID_GLOBAL_BUILD_PATHS, ZSH_VERSION)
+      # V07 - BUILD ENVIRONMENT (FIXED: Added ENVSETUP_NO_COMPLETION)
       # ============================================================
 
       - name: V07 - Prepare vendor build environment
@@ -331,7 +332,9 @@ jobs:
           # Fix unbound variables in envsetup.sh
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
-          export ZSH_VERSION=""   # envsetup.sh checks this
+          export ZSH_VERSION=""
+          # *** FIX: Added this line ***
+          export ENVSETUP_NO_COMPLETION="true"
 
           source build/envsetup.sh
           lunch "$PRODUCT"
@@ -374,7 +377,7 @@ jobs:
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
       # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY (FIXED: set TOP, ANDROID_GLOBAL_BUILD_PATHS, ZSH_VERSION)
+      # V09 - BUILD VENDOR.IMG ONLY (FIXED: Added ENVSETUP_NO_COMPLETION)
       # ============================================================
 
       - name: V09 - Build vendor.img ONLY
@@ -392,6 +395,8 @@ jobs:
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
+          # *** FIX: Added this line ***
+          export ENVSETUP_NO_COMPLETION="true"
 
           source build/envsetup.sh
           lunch "$PRODUCT"
