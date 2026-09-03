@@ -30,7 +30,7 @@ jobs:
 
     runs-on: ubuntu-24.04
 
-    timeout-minutes: 360
+    timeout-minutes: 480   # بڑھایا تاکہ sync اور build مکمل ہو سکے
 
     steps:
 
@@ -95,6 +95,14 @@ jobs:
           # Temporary files
           sudo rm -rf /tmp/* 2>/dev/null || true
           sudo rm -rf /var/tmp/* 2>/dev/null || true
+
+          # === اضافی بڑی ڈائریکٹریز ===
+          sudo rm -rf /usr/local/share/boost 2>/dev/null || true
+          sudo rm -rf /usr/local/julia 2>/dev/null || true
+          sudo rm -rf /usr/local/graalvm 2>/dev/null || true
+          sudo rm -rf /usr/share/swift 2>/dev/null || true
+          sudo rm -rf /opt/microsoft 2>/dev/null || true
+          sudo rm -rf /opt/pipx 2>/dev/null || true
 
           sync
 
@@ -405,7 +413,7 @@ jobs:
             echo "=================================================="
 
             # Try with --depth=1 first
-            timeout 3600 repo sync \
+            timeout 5400 repo sync \
               --current-branch \
               --force-sync \
               --no-clone-bundle \
