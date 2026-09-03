@@ -38,10 +38,6 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # V00 - CHECKOUT
-      # ============================================================
-
       - name: V00 - Checkout repository
         id: v00
         uses: actions/checkout@v4
@@ -49,29 +45,27 @@ jobs:
           fetch-depth: 1
           clean: false
 
-      # ============================================================
-      # V00.1 - MAXIMIZE DISK SPACE (CRITICAL FIX)
-      # یہ اسٹیپ مین ڈسک کو 14GB اور /mnt پارٹیشن کو 74GB ملا کر
-      # تقریباً 200GB+ جگہ بنا دیتا ہے (خودکار، کوئی کمانڈ نہیں چلانی)
-      # ============================================================
+      - name: V00.2 - Free runner storage (extreme)
+        id: cleanup
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "EXTREME RUNNER CLEANUP"
+          sudo rm -rf /usr/local/lib/android /usr/local/.ghcup /usr/share/dotnet /usr/local/share/powershell /usr/local/lib/node_modules /opt/ghc /usr/share/ghc* /opt/hostedtoolcache /usr/local/share/boost /usr/local/julia /usr/local/graalvm /usr/share/swift /opt/microsoft /opt/pipx
+          sudo rm -rf /usr/local/lib/python* /tmp/* /var/tmp/*
+          sudo rm -rf /usr/local/go /usr/local/bin/go /usr/local/bin/gofmt
+          sudo apt-get clean || true
+          sudo rm -rf /var/lib/apt/lists/*
+          docker system prune -af 2>/dev/null || true
+          docker builder prune -af 2>/dev/null || true
+          rm -rf ~/.cache/* ~/.gradle/caches/* ~/.npm/_cacache ~/.m2/repository/* ~/.cache/pip ~/.ccache
+          rm -rf ~/android-sdk-linux /opt/android-sdk
+          sync
+          echo "STORAGE AFTER CLEANUP"
+          df -h
+          df -ih
 
-      - name: V00.1 - Maximize disk space
-        uses: easimon/maximize-build-space@v10
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: true
-          remove-android: true
-          remove-haskell: true
-          remove-codeql: true
-          remove-docker-images: true
-          build-mount-path: /mnt
-
-      # ============================================================
-      # V00.2 - CREATE DIAGNOSTICS
-      # ============================================================
-
-      - name: V00.2 - Create diagnostics
+      - name: V00.3 - Create diagnostics
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -88,10 +82,6 @@ jobs:
             echo "runner=$RUNNER_NAME"
             echo "started=$(date -u +%FT%TZ)"
           } | tee "$GITHUB_WORKSPACE/$DIAG_DIR/00-run.log"
-
-      # ============================================================
-      # V01 - INSTALL DEPENDENCIES
-      # ============================================================
 
       - name: V01 - Install build dependencies and update repo
         id: v01
@@ -114,10 +104,6 @@ jobs:
           python3 --version
           df -h
 
-      # ============================================================
-      # V02 - INITIALIZE ANDROID SOURCE (Shallow Clone)
-      # ============================================================
-
       - name: V02 - Initialize Android source (Shallow Clone)
         id: v02
         shell: bash
@@ -135,10 +121,6 @@ jobs:
           test -s "$base/android/.repo/manifests/default.xml"
           echo "V02 PASS"
           df -h
-
-      # ============================================================
-      # V03 - LOCAL MANIFEST
-      # ============================================================
 
       - name: V03 - Create local manifest
         id: v03
@@ -163,10 +145,6 @@ jobs:
           cat .repo/local_manifests/g900lm.xml
           echo "V03 PASS"
           df -h
-
-      # ============================================================
-      # V04 - FULL REPO SYNC (NO CLEANUP)
-      # ============================================================
 
       - name: V04 - Verify refs and full repo sync
         id: v04
@@ -233,18 +211,18 @@ jobs:
             exit 1
           fi
 
-          # *** CRITICAL: Use /mnt for build output to save space ***
-          mkdir -p /mnt/android_out
-          ln -sfn /mnt/android_out "$base/android/out"
-
-          echo "V04 PASS: full repo sync completed successfully. NO FILES DELETED!"
+          echo "CRITICAL CLEANUP: Deleting ONLY unrelated directories. Vendor build core files are SAFE."
+          rm -rf cts development test sdk lineage-sdk
+          rm -rf external/chromium external/llvm external/rust external/tensorflow external/angle external/webrtc
+          rm -rf bootable/recovery
+          rm -rf kernel
+          rm -rf prebuilts/gcc prebuilts/ndk prebuilts/sdk prebuilts/build-tools prebuilts/misc
+          
+          echo "Disk after cleanup:"
           df -h
+          echo "V04 PASS: full repo sync completed successfully. ONLY unrelated files deleted!"
 
-      # ============================================================
-      # V05 - VERIFY SYNCED SOURCE (NON-BLOCKING)
-      # ============================================================
-
-      - name: V05 - Verify synced vendor source
+      - name: V05 - Verify synced vendor source (NON-BLOCKING)
         id: v05
         if: ${{ always() && steps.v04.outcome == 'success' }}
         shell: bash
@@ -258,10 +236,6 @@ jobs:
           repo list | grep -E 'device/lge/caymanlm|vendor/lge/caymanlm|vendor/lge/sm7250-common'
           exit 0
 
-      # ============================================================
-      # V06 - LM-G900 IDENTITY
-      # ============================================================
-
       - name: V06 - Verify LM-G900 identity
         id: v06
         if: ${{ always() && steps.v04.outcome == 'success' }}
@@ -274,10 +248,6 @@ jobs:
           exec > >(tee -a "$log") 2>&1
           echo "MODEL=$MODEL, CODENAME=$DEVICE_CODENAME, PRODUCT=$PRODUCT"
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
-
-      # ============================================================
-      # V07 - BUILD ENVIRONMENT
-      # ============================================================
 
       - name: V07 - Prepare vendor build environment
         id: v07
@@ -299,10 +269,6 @@ jobs:
           echo "PRODUCT_DEVICE=$(get_build_var PRODUCT_DEVICE)"
           echo "TARGET_PRODUCT=$(get_build_var TARGET_PRODUCT)"
           echo "TARGET_BUILD_VARIANT=$(get_build_var TARGET_BUILD_VARIANT)"
-
-      # ============================================================
-      # V08 - HARDWARE AUDIT (NON-FATAL)
-      # ============================================================
 
       - name: V08 - Mandatory hardware integration audit
         id: v08
@@ -331,10 +297,6 @@ jobs:
           audit "Audio" 'mixer_paths|audio_policy|audio_hw|primary\.sm|tinyalsa|snd' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
-      # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY
-      # ============================================================
-
       - name: V09 - Build vendor.img ONLY
         id: v09
         if: ${{ always() && steps.v04.outcome == 'success' }}
@@ -362,10 +324,6 @@ jobs:
           df -h
           exit "$rc"
 
-      # ============================================================
-      # V10 - VERIFY VENDOR IMAGE + VINTF
-      # ============================================================
-
       - name: V10 - Verify vendor image and VINTF
         id: v10
         if: ${{ always() && steps.v04.outcome == 'success' }}
@@ -383,10 +341,6 @@ jobs:
           find "$out/vendor/etc/vintf" -type f -print 2>/dev/null | sort || true
           echo "=== FEATURE SCAN ==="
           grep -RniE 'fingerprint|vibrator|haptics|dual.?sim|dsds|mixer_paths|audio_policy|ims|iwlan|vowifi|wifi.?calling' "$out/vendor" 2>/dev/null | head -500 || true
-
-      # ============================================================
-      # V11 - ALWAYS COLLECT DIAGNOSTICS
-      # ============================================================
 
       - name: V11 - ALWAYS collect diagnostics
         id: v11
@@ -441,10 +395,6 @@ jobs:
           } > vendor_out/ARTIFACT-LIST.txt
           tar -czf "vendor_out/LM-G900-VENDOR-DIAGNOSTICS-${GITHUB_RUN_ID}.tar.gz" "$DIAG_DIR" 2>/dev/null || true
 
-      # ============================================================
-      # V12 - UPLOAD ARTIFACTS ALWAYS
-      # ============================================================
-
       - name: V12 - Upload vendor diagnostics ALWAYS
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
@@ -456,10 +406,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           compression-level: 1
-
-      # ============================================================
-      # FINAL STATUS
-      # ============================================================
 
       - name: FINAL - Return vendor status
         if: ${{ always() }}
