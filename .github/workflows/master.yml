@@ -15,12 +15,13 @@ env:
   MODEL: "LM-G900"
   PRODUCT: "lineage_caymanlm-userdebug"
 
-  VENDOR_ORG: "lge-qcom-dev"
+  # ===== یہاں آرگنائزیشن کو اپنے اکاؤنٹ میں تبدیل کریں =====
+  VENDOR_ORG: "Hirashi-so"   # پہلے lge-qcom-dev تھا
+
   DEVICE_REPO: "android_device_lge_caymanlm"
   VENDOR_REPO: "proprietary_vendor_lge_caymanlm"
   COMMON_VENDOR_REPO: "proprietary_vendor_lge_sm7250-common"
 
-  # ===== برانچز کو 'sixteen' پر سیٹ کیا =====
   DEVICE_BRANCH: "sixteen"
   VENDOR_BRANCH: "sixteen"
   COMMON_BRANCH: "sixteen"
@@ -169,7 +170,6 @@ jobs:
           cd "$base/android"
           mkdir -p .repo/local_manifests
 
-          # براہِ راست sixteen برانچ استعمال کریں
           cat > .repo/local_manifests/g900lm.xml <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
