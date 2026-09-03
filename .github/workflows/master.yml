@@ -214,11 +214,17 @@ jobs:
           set +e
           repo forall -c 'git gc --prune=now' 2>/dev/null
           set -e
+          
           echo "CRITICAL CLEANUP: Deleting HEAVY directories NOT required for vendor build."
+          # *** IMPORTANT: DO NOT DELETE packages/apps (CRITICAL for lunch combo!) ***
           rm -rf cts development test sdk lineage-sdk
           rm -rf external/chromium external/llvm external/rust external/tensorflow external/angle external/webrtc
           rm -rf bootable/recovery
-          rm -rf frameworks/opt/telephony frameworks/opt/net/wifi frameworks/opt/net/ims
+          rm -rf kernel
+          rm -rf prebuilts/gcc prebuilts/ndk prebuilts/sdk prebuilts/build-tools prebuilts/misc
+          
+          # *** ONLY KEEP prebuilts/clang (NEEDED FOR BUILD) ***
+          
           echo "Disk after cleanup:"
           df -h
           echo "V04 PASS: full repo sync completed successfully. Space freed!"
