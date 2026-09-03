@@ -152,7 +152,7 @@ jobs:
           df -h
 
       # ============================================================
-      # V03 - LOCAL MANIFEST (Remove Heavy / Unnecessary Projects)
+      # V03 - LOCAL MANIFEST (Remove Heavy / Unnecessary Projects - CORRECTED)
       # ============================================================
 
       - name: V03 - Create local manifest with lineage-23.2 branches and remove heavy projects
@@ -179,49 +179,43 @@ jobs:
           </manifest>
           EOF
 
-          # 2. Create a manifest that REMOVES all the heavy and unnecessary projects
+          # 2. Create a manifest that REMOVES all heavy projects using CORRECT platform/ prefix
           cat > .repo/local_manifests/remove-heavy.xml <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
             <!-- Remove Heavy App packages (not needed for vendor) -->
-            <remove-project name="LineageOS/android_packages_apps_Aperture" />
-            <remove-project name="LineageOS/android_packages_apps_Camera2" />
-            <remove-project name="LineageOS/android_packages_apps_DeskClock" />
-            <remove-project name="LineageOS/android_packages_apps_Dialer" />
-            <remove-project name="LineageOS/android_packages_apps_Gallery2" />
-            <remove-project name="LineageOS/android_packages_apps_Jelly" />
-            <remove-project name="LineageOS/android_packages_apps_Launcher3" />
-            <remove-project name="LineageOS/android_packages_apps_Messaging" />
-            <remove-project name="LineageOS/android_packages_apps_Settings" />
-            <remove-project name="LineageOS/android_packages_apps_SetupWizard" />
-            <remove-project name="LineageOS/android_packages_apps_Updater" />
-            <remove-project name="LineageOS/android_packages_apps_WallpaperPicker2" />
+            <remove-project name="platform/packages/apps/Camera2" />
+            <remove-project name="platform/packages/apps/Gallery2" />
+            <remove-project name="platform/packages/apps/Launcher3" />
+            <remove-project name="platform/packages/apps/Messaging" />
+            <remove-project name="platform/packages/apps/Settings" />
+            <remove-project name="platform/packages/apps/SetupWizard" />
             
             <!-- Remove CTS, Development, Tests (not needed for vendor) -->
-            <remove-project name="LineageOS/android_cts" />
-            <remove-project name="LineageOS/android_development" />
-            <remove-project name="LineageOS/android_test" />
+            <remove-project name="platform/cts" />
+            <remove-project name="platform/development" />
+            <remove-project name="platform/test" />
             
             <!-- Remove Heavy Frameworks (like Opt & legacy) -->
-            <remove-project name="LineageOS/android_frameworks_opt_telephony" />
-            <remove-project name="LineageOS/android_frameworks_opt_net_wifi" />
-            <remove-project name="LineageOS/android_frameworks_opt_net_ims" />
+            <remove-project name="platform/frameworks/opt/telephony" />
+            <remove-project name="platform/frameworks/opt/net/wifi" />
+            <remove-project name="platform/frameworks/opt/net/ims" />
             
             <!-- Remove Kernel (not needed for vendor-only build) -->
             <remove-project name="platform/kernel/prebuilts" />
             
             <!-- Remove Recovery & Bootable (not strictly needed for vendor only) -->
-            <remove-project name="LineageOS/android_bootable_recovery" />
+            <remove-project name="platform/bootable/recovery" />
             
             <!-- Remove Heavy External Projects -->
-            <remove-project name="LineageOS/android_external_chromium-webview" />
-            <remove-project name="LineageOS/android_external_llvm" />
-            <remove-project name="LineageOS/android_external_rust" />
-            <remove-project name="LineageOS/android_external_tensorflow" />
-            <remove-project name="LineageOS/android_external_angle" />
-            <remove-project name="LineageOS/android_external_webrtc" />
+            <remove-project name="platform/external/chromium-webview" />
+            <remove-project name="platform/external/llvm" />
+            <remove-project name="platform/external/rust" />
+            <remove-project name="platform/external/tensorflow" />
+            <remove-project name="platform/external/angle" />
+            <remove-project name="platform/external/webrtc" />
             
-            <!-- Remove Lineage SDK (not needed for vendor) -->
+            <!-- Remove Lineage SDK & Vendor (not needed for vendor) -->
             <remove-project name="LineageOS/android_lineage-sdk" />
             <remove-project name="LineageOS/android_vendor_lineage" />
           </manifest>
@@ -229,8 +223,8 @@ jobs:
 
           cat .repo/local_manifests/g900lm.xml
           cat .repo/local_manifests/remove-heavy.xml
-          repo manifest >/dev/null
           echo "V03 PASS"
+          df -h
 
       # ============================================================
       # V04 - FULL REPO SYNC (Only required projects get downloaded)
