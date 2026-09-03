@@ -58,7 +58,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-
           echo "=================================================="
           echo "EXTREME RUNNER CLEANUP"
           echo "=================================================="
@@ -72,7 +71,6 @@ jobs:
           sudo rm -rf /usr/local/lib/python* /tmp/* /var/tmp/*
           sync
 
-          echo
           echo "STORAGE AFTER CLEANUP"
           df -h
           df -ih
@@ -145,7 +143,6 @@ jobs:
           mkdir -p "$base/android"
           cd "$base/android"
 
-          # NOTE: --depth=1 is only valid here in repo init
           repo init -u "$MANIFEST_URL" -b "$ANDROID_BRANCH" --depth=1 --no-clone-bundle --repo-url=https://gerrit.googlesource.com/git-repo --repo-branch=stable
           repo selfupdate
           test -s "$base/android/.repo/manifests/default.xml"
@@ -184,7 +181,7 @@ jobs:
           echo "V03 PASS"
 
       # ============================================================
-      # V04 - FULL REPO SYNC
+      # V04 - FULL REPO SYNC (FIXED: Added git gc to free space after sync)
       # ============================================================
 
       - name: V04 - Verify refs and full repo sync
@@ -232,7 +229,8 @@ jobs:
 
           while [[ $attempt -le $max_retries ]]; do
             echo "FULL REPO SYNC ATTEMPT $attempt of $max_retries"
-            # FIXED: Removed --depth=1 because it is NOT valid for repo sync
+            # NOTE: We removed --depth from sync because repo tool does not accept it here.
+            # Rely on repo init --depth=1 for shallow clone.
             timeout 5400 repo sync --current-branch --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune -j4 2>&1 | tee -a "$sync_log"
             rc=${PIPESTATUS[0]}
 
@@ -270,6 +268,14 @@ jobs:
             echo "FATAL: build/envsetup.sh is missing after sync!" | tee -a "$sync_log"
             exit 1
           fi
+
+          # *** NEW STEP: Garbage collect git repos to free disk space ***
+          echo "Running git gc to free up disk space..."
+          set +e
+          repo forall -c 'git gc --prune=now' >/dev/null 2>&1
+          set -e
+          echo "Disk after cleanup:"
+          df -h
 
           echo "V04 PASS: full repo sync completed successfully."
 
@@ -316,7 +322,7 @@ jobs:
           grep -RniE 'LM-G900|caymanlm' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common 2>/dev/null | head -300 || true
 
       # ============================================================
-      # V07 - BUILD ENVIRONMENT (FIXED: Added ENVSETUP_NO_COMPLETION)
+      # V07 - BUILD ENVIRONMENT (FIXED: Added USE_LEFTOVERS)
       # ============================================================
 
       - name: V07 - Prepare vendor build environment
@@ -334,8 +340,9 @@ jobs:
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
-          # FIXED: Added this line to prevent unbound variable error
           export ENVSETUP_NO_COMPLETION="true"
+          # *** FIX: Added this line ***
+          export USE_LEFTOVERS=""
 
           source build/envsetup.sh
           lunch "$PRODUCT"
@@ -378,7 +385,7 @@ jobs:
           audit "Wi-Fi Calling/IMS" 'ims|iwlan|vowifi|wifi.?calling|volte|carrier.?config' device/lge/caymanlm vendor/lge/caymanlm vendor/lge/sm7250-common
 
       # ============================================================
-      # V09 - BUILD VENDOR.IMG ONLY (FIXED: Added ENVSETUP_NO_COMPLETION)
+      # V09 - BUILD VENDOR.IMG ONLY (FIXED: Added USE_LEFTOVERS)
       # ============================================================
 
       - name: V09 - Build vendor.img ONLY
@@ -396,8 +403,9 @@ jobs:
           export TOP=$(pwd)
           export ANDROID_GLOBAL_BUILD_PATHS=""
           export ZSH_VERSION=""
-          # FIXED: Added this line to prevent unbound variable error
           export ENVSETUP_NO_COMPLETION="true"
+          # *** FIX: Added this line ***
+          export USE_LEFTOVERS=""
 
           source build/envsetup.sh
           lunch "$PRODUCT"
